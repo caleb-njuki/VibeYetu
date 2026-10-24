@@ -6,7 +6,9 @@ import useNotifications from "../../hooks/useNotifications.js";
 import { getShopSettings } from "../../lib/shopProfile.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { formatWhen, getStatus, sellerAction } from "../../lib/orders.js";
+import { acceptDeadline, formatCountdown, formatWhen, getStatus, sellerAction } from "../../lib/orders.js";
+import { STRIKE_LIMIT, shopStrikes } from "../../lib/strikes.js";
+import { getShopFlags } from "../../lib/shopFlags.js";
 import { formatKES, fulfillmentLabel } from "../../lib/format.js";
 
 const chip = (active) =>
@@ -27,10 +29,21 @@ export default function SellerOrders() {
     });
   const shown = filter === "action" ? rows.filter((r) => r.action) : rows;
   const needAction = rows.filter((r) => r.action).length;
+  const flags = getShopFlags(seller.shopId);
+  const strikes = shopStrikes(orders, seller.shopId, now, flags.reinstatedAt || 0);
 
   return (
     <div className="space-y-5">
       <h1 className="text-3xl font-extrabold">Orders</h1>
+
+      {strikes.streak > 0 && !flags.suspended && (
+        <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>
+            {strikes.streak} of {STRIKE_LIMIT} unfulfilled orders in a row.
+          </strong>{" "}
+          If {STRIKE_LIMIT} orders in a row are not fulfilled, your shop is suspended automatically. Fulfilling one order resets the count.
+        </p>
+      )}
 
       {!getShopSettings(seller.shopId).private.payout && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -73,7 +86,10 @@ export default function SellerOrders() {
                   </div>
                 </div>
                 <p className="flex justify-between text-sm">
-                  <span className="font-semibold text-vibe-dark">{action || ""}</span>
+                  <span className="font-semibold text-vibe-dark">
+                    {action || ""}
+                    {status === "pending" && ` (${formatCountdown(acceptDeadline(o) - now)} left)`}
+                  </span>
                   <span className="font-extrabold">{formatKES(o.total)}</span>
                 </p>
               </Link>

@@ -46,6 +46,16 @@ export default function Shop() {
     );
   }
 
+  if (shop.suspended) {
+    return (
+      <div className="mx-auto flex max-w-xl flex-col items-center gap-4 px-4 py-24 text-center">
+        <h1 className="text-3xl font-extrabold">This shop is not available right now</h1>
+        <p className="text-ink-mute">Please check back later, or browse other shops near you.</p>
+        <Button to="/search">Browse products</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 pt-8">
       <section className="flex flex-col gap-4 rounded-3xl bg-white p-6 shadow-card sm:flex-row sm:items-center">

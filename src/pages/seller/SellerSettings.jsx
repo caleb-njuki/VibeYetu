@@ -3,10 +3,12 @@ import { Link } from "react-router-dom";
 import { CheckCircle2, Circle } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
+import ShopNameField from "../../components/ShopNameField.jsx";
 import { deleteImage } from "../../lib/images.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { AREAS, TOWNS, findArea } from "../../lib/areas.js";
 import { getShopSettings, saveShopSettings } from "../../lib/shopProfile.js";
+import { SHOPS_CHANGED, checkShopName } from "../../lib/sellers.js";
 import { localPhone, normalizePhone } from "../../lib/format.js";
 import { getShop } from "../../services/api.js";
 
@@ -21,6 +23,9 @@ export default function SellerSettings() {
 
   useEffect(() => {
     let live = true;
+    setForm(null);
+    setSaved(false);
+    setError("");
     getShop(seller.shopId)
       .then((s) => {
         if (!live || !s) return;
@@ -70,7 +75,8 @@ export default function SellerSettings() {
   function save(e) {
     e.preventDefault();
     const area = findArea(form.areaId);
-    if (form.name.trim().length < 3) return setError("Your shop name must have at least 3 characters.");
+    const nameCheck = checkShopName(form.name, { ignoreShopId: seller.shopId });
+    if (!nameCheck.ok) return setError(nameCheck.message);
     if (!area) return setError("Choose the area your shop is in.");
     if (!(form.opens < form.closes)) return setError("The closing time must be after the opening time.");
     if (!form.delivery && !form.pickup) return setError("Choose delivery, pickup or both.");
@@ -82,7 +88,7 @@ export default function SellerSettings() {
     const moved = form.areaId !== shop.areaId;
     saveShopSettings(seller.shopId, {
       public: {
-        name: form.name.trim(),
+        name: nameCheck.name,
         description: form.description.trim(),
         photo: form.photo[0] || "",
         areaId: area.id,
@@ -98,6 +104,8 @@ export default function SellerSettings() {
     });
     if (shop.photo && shop.photo !== form.photo[0]) deleteImage(shop.photo);
     setShop((s) => ({ ...s, areaId: area.id, photo: form.photo[0] || "" }));
+    setForm((f) => ({ ...f, name: nameCheck.name }));
+    window.dispatchEvent(new Event(SHOPS_CHANGED));
     setError("");
     setSaved(true);
   }
@@ -142,12 +150,17 @@ export default function SellerSettings() {
             setForm((f) => ({ ...f, photo: ids }));
           }}
         />
-        <div className="space-y-1.5">
-          <label htmlFor="s-name" className="text-sm font-semibold">
-            Shop name
-          </label>
-          <input id="s-name" value={form.name} onChange={set("name")} className={inputCls} />
-        </div>
+        <ShopNameField
+          id="s-name"
+          value={form.name}
+          areaId={form.areaId}
+          ignoreShopId={seller.shopId}
+          onChange={(name) => {
+            setSaved(false);
+            setForm((f) => ({ ...f, name }));
+          }}
+          hint="Buyers know you by this name, so change it only if you must. It must stay unique."
+        />
         <div className="space-y-1.5">
           <label htmlFor="s-desc" className="text-sm font-semibold">
             About your shop

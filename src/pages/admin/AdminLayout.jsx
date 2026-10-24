@@ -6,6 +6,7 @@ import { useAdmin } from "../../context/AdminAuthContext.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { getStatus } from "../../lib/orders.js";
 import { adState, listAds } from "../../lib/ads.js";
+import { pendingReviewCount } from "../../lib/suspensions.js";
 
 const tab = ({ isActive }) =>
   `flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold ${isActive ? "bg-ink text-white" : "text-ink hover:bg-ink/5"}`;
@@ -20,6 +21,7 @@ export default function AdminLayout() {
   if (!admin) return <Navigate to="/admin/login" replace />;
 
   const pendingAds = listAds().filter((a) => adState(a) === "attention").length;
+  const reportsWaiting = pendingReviewCount();
   const openCases = orders.filter(
     (o) => (o.status === "accepted" || o.status === "dispatched") && getStatus(o, now) === "review"
   ).length;
@@ -47,6 +49,11 @@ export default function AdminLayout() {
             </NavLink>
             <NavLink to="/admin/shops" className={tab}>
               Shops
+              {reportsWaiting > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
+                  {reportsWaiting}
+                </span>
+              )}
             </NavLink>
             <NavLink to="/admin/ads" className={tab}>
               Ads

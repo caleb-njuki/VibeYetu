@@ -10,7 +10,7 @@ import useNow from "../../hooks/useNow.js";
 import useNotifications from "../../hooks/useNotifications.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { PROMISES, WINDOW_MS, eventText, formatCountdown, formatWhen, getStatus, supportDeadline } from "../../lib/orders.js";
+import { PROMISES, WINDOW_MS, acceptDeadline, eventText, formatCountdown, formatWhen, getStatus, supportDeadline } from "../../lib/orders.js";
 import { formatKES, fulfillmentLabel } from "../../lib/format.js";
 
 const REJECT_REASONS = ["Out of stock", "Item is faulty", "Cannot deliver in time", "Other"];
@@ -129,6 +129,10 @@ export default function SellerOrderDetail() {
           <p className="text-sm text-ink-soft">
             The buyer has paid and the money is held in escrow. Choose when you will have the order with the buyer. Once you
             agree, you receive the receipt code and the 24-hour window starts.
+          </p>
+          <p className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Respond within {formatCountdown(acceptDeadline(order) - now)}. After that the buyer is refunded and the order counts as unfulfilled.
           </p>
           <fieldset className="space-y-2">
             <legend className="sr-only">Delivery promise</legend>

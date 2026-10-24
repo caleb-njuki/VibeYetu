@@ -19,7 +19,11 @@ import Checkout from "./pages/Checkout.jsx";
 import OrderSuccess from "./pages/OrderSuccess.jsx";
 import Orders from "./pages/Orders.jsx";
 import OrderDetail from "./pages/OrderDetail.jsx";
+import Privacy from "./pages/Privacy.jsx";
 import SellerLogin from "./pages/seller/SellerLogin.jsx";
+import SellerRegister from "./pages/seller/SellerRegister.jsx";
+import SellerBranchNew from "./pages/seller/SellerBranchNew.jsx";
+import SellerSuspension from "./pages/seller/SellerSuspension.jsx";
 import SellerLayout from "./pages/seller/SellerLayout.jsx";
 import SellerOrders from "./pages/seller/SellerOrders.jsx";
 import SellerOrderDetail from "./pages/seller/SellerOrderDetail.jsx";
@@ -67,11 +71,13 @@ export default function App() {
                   <Route path="cart" element={<Cart />} />
                   <Route path="login" element={<Login />} />
                   <Route path="terms" element={<Terms />} />
+                  <Route path="privacy" element={<Privacy />} />
                   <Route path="checkout" element={guard(<Checkout />)} />
                   <Route path="checkout/success" element={guard(<OrderSuccess />)} />
                   <Route path="orders" element={guard(<Orders />)} />
                   <Route path="orders/:id" element={guard(<OrderDetail />)} />
                   <Route path="my-shop/login" element={<SellerLogin />} />
+                  <Route path="my-shop/register" element={<SellerRegister />} />
                   <Route path="*" element={<ComingSoon />} />
                 </Route>
                 <Route path="my-shop" element={<SellerLayout />}>
@@ -82,6 +88,8 @@ export default function App() {
                   <Route path="sales" element={<SellerSales />} />
                   <Route path="ads" element={<SellerAds />} />
                   <Route path="settings" element={<SellerSettings />} />
+                  <Route path="branches/new" element={<SellerBranchNew />} />
+                  <Route path="report" element={<SellerSuspension />} />
                 </Route>
                 <Route path="admin/login" element={<AdminLogin />} />
                 <Route path="admin" element={<AdminLayout />}>

@@ -10,6 +10,7 @@ import { MAX_LIVE_ADS, adLink, liveAds } from "../lib/ads.js";
 import { hasLocation, withDistance } from "../lib/geo.js";
 import { soldCounts } from "../lib/sales.js";
 import { withRatings } from "../lib/ratings.js";
+import { customShops } from "../lib/sellers.js";
 
 export const DELIVERY_FEE = 150;
 const DEMO_OTP = "123456"; // Demo only. Real SMS codes arrive with the backend.
@@ -21,7 +22,9 @@ const applyShopRatings = (s) => {
   const r = withRatings(s.rating, s.reviews || 0, "shop", s.id);
   return { ...s, rating: r.rating, reviews: r.count };
 };
-const shopList = () => baseShops.map(applyShopProfile).map(applyShopFlags).map(applyShopRatings);
+// Sample shops plus the shops sellers opened. The owner's email stays private, so it is removed here.
+const allShops = () => [...baseShops, ...customShops().map(({ ownerEmail, ...shop }) => shop)];
+const shopList = () => allShops().map(applyShopProfile).map(applyShopFlags).map(applyShopRatings);
 const catalog = () => applyCatalog(baseProducts);
 const liveProducts = () => catalog().filter((p) => p.active !== false && !isSuspended(p.shopId));
 
@@ -109,6 +112,10 @@ export async function verifyOtp(phone, code) {
 // once payment succeeds.
 export async function placeOrders({ items, modes }) {
   await wait(400);
+  // A shop can be suspended after its items went into a cart. Stop before any payment is taken.
+  if (items.some((i) => isSuspended(i.shopId))) {
+    throw new Error("A shop in your cart is not taking orders right now. Please remove its items and try again.");
+  }
   const byShop = new Map();
   items.forEach((i) => {
     if (!byShop.has(i.shopId)) {

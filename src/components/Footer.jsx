@@ -3,8 +3,8 @@ import Logo from "./Logo.jsx";
 
 const COLUMNS = [
   { title: "Shop", links: [["All products", "/search"], ["Cart", "/cart"], ["My orders", "/orders"]] },
-  { title: "Help", links: [["How escrow works", "/how-it-works"], ["Refunds", "/help/refunds"], ["Contact us", "/contact"], ["Terms of use", "/terms"]] },
-  { title: "Sell", links: [["Open a shop", "/my-shop"], ["Seller guide", "/sell/guide"], ["Fees", "/sell/fees"]] },
+  { title: "Help", links: [["How escrow works", "/how-it-works"], ["Refunds", "/help/refunds"], ["Contact us", "/contact"], ["Terms of use", "/terms"], ["Privacy policy", "/privacy"]] },
+  { title: "Sell", links: [["Open a shop", "/my-shop/register"], ["Seller guide", "/sell/guide"], ["Fees", "/sell/fees"]] },
 ];
 
 export default function Footer() {

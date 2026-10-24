@@ -31,6 +31,26 @@ const SECTIONS = [
     title: "8. Your responsibilities",
     text: "Give accurate information, keep your receipt code private until it is needed, and complete all payments and arrangements on VibeYetu. Payments made outside VibeYetu are not protected by escrow.",
   },
+  {
+    title: "9. Shop names and branches (sellers)",
+    text: "A shop name works like a username, so each shop on VibeYetu has a unique name. You may not copy or imitate another shop's name or use a misleading one. One seller may open several shops, for example branches in different towns. Each branch needs its own unique name, such as the main name followed by the town. We may ask you to change a name that is misleading or abusive.",
+  },
+  {
+    title: "10. Seller details and fraud protection (sellers)",
+    text: "To open a shop you give us your full name, national ID number, phone number and, if you have them, your KRA PIN and business registration details. You confirm that these are true and belong to you. We use them to verify sellers and to respond to fraud claims and legal requests. We do not show them to buyers or other sellers. Our Privacy policy explains how we keep them and your rights.",
+  },
+  {
+    title: "11. Your account (sellers)",
+    text: "Keep your password private. You are responsible for what happens in your My Shop account and in every branch under it. Tell us at once if you think someone else has used your account.",
+  },
+  {
+    title: "12. Answering orders on time",
+    text: "A seller must agree to fulfil or reject a paid order within 1 hour. If the seller does not answer in time, the order is cancelled and the buyer is refunded in full, including the delivery fee. That order counts as unfulfilled.",
+  },
+  {
+    title: "13. Suspension (sellers)",
+    text: "An order is unfulfilled when the seller does not answer in time, rejects it after agreeing to fulfil it, or never dispatches it before the 24-hour window ends (unless support decides in the seller's favour). If 3 orders in a row are unfulfilled, the shop is suspended automatically and buyers can no longer see it. The seller is told to write a report explaining what happened. The shop stays suspended until the report is received and support has verified it. A completed order resets the count. Orders already in progress can still be completed while a shop is suspended.",
+  },
 ];
 
 export default function Terms() {

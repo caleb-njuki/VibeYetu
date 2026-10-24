@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOrders } from "../context/OrdersContext.jsx";
 import useNow from "./useNow.js";
 import { buildNotifications } from "../lib/orders.js";
+import { listNotices } from "../lib/suspensions.js";
+import { SHOPS_CHANGED } from "../lib/sellers.js";
 
 const MAX_STORED = 500;
 
@@ -21,15 +23,30 @@ export default function useNotifications(role, shopId = "me") {
   const now = useNow(60000);
   const key = `vibeyetu_read_${role}_${shopId}`;
   const [read, setRead] = useState(() => load(key));
+  const [tick, setTick] = useState(0);
+
+  // Shop notices (suspension, review decisions) can arrive from another page or tab.
+  useEffect(() => {
+    const bump = () => setTick((n) => n + 1);
+    window.addEventListener(SHOPS_CHANGED, bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener(SHOPS_CHANGED, bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
 
   useEffect(() => {
     setRead(load(key));
   }, [key]);
 
-  const items = useMemo(
-    () => buildNotifications(orders, role, role === "seller" ? shopId : null, now),
-    [orders, role, shopId, now]
-  );
+  const items = useMemo(() => {
+    const fromOrders = buildNotifications(orders, role, role === "seller" ? shopId : null, now);
+    if (role !== "seller") return fromOrders;
+    const notices = listNotices(shopId).map((n) => ({ id: n.id, orderId: null, at: n.at, text: n.text, href: n.href }));
+    return [...fromOrders, ...notices].sort((a, b) => b.at - a.at);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick makes the notices reload
+  }, [orders, role, shopId, now, tick]);
   const readSet = useMemo(() => new Set(read), [read]);
   const unread = useMemo(() => items.filter((n) => !readSet.has(n.id)), [items, readSet]);
   const unreadOrderIds = useMemo(() => new Set(unread.map((n) => n.orderId)), [unread]);

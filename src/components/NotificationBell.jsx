@@ -30,7 +30,8 @@ export default function NotificationBell({ role, shopId }) {
   function openItem(n) {
     markRead(n.id);
     setOpen(false);
-    navigate(role === "seller" ? `/my-shop/orders/${n.orderId}` : `/orders/${n.orderId}`);
+    if (n.href) navigate(n.href);
+    else navigate(role === "seller" ? `/my-shop/orders/${n.orderId}` : `/orders/${n.orderId}`);
   }
 
   return (
@@ -83,7 +84,7 @@ export default function NotificationBell({ role, shopId }) {
                     <span className="min-w-0">
                       <span className={`block text-sm ${isUnread(n.id) ? "font-semibold" : ""}`}>{n.text}</span>
                       <span className="text-xs text-ink-mute">
-                        Order {n.orderId} &middot; {formatWhen(n.at)}
+                        {n.orderId ? `Order ${n.orderId}` : "Shop notice"} &middot; {formatWhen(n.at)}
                       </span>
                     </span>
                   </button>

@@ -1,5 +1,6 @@
 export const WINDOW_MS = 24 * 60 * 60 * 1000; // time to finish the code steps
 export const SUPPORT_MS = 72 * 60 * 60 * 1000; // support decision deadline
+export const ACCEPT_WINDOW_MS = 60 * 60 * 1000; // time a seller has to answer a new paid order
 
 export const PROMISES = [
   { id: "1h", label: "Within 1 hour", ms: 60 * 60 * 1000 },
@@ -35,6 +36,11 @@ export function getStatus(order, now) {
 // The delivery fee is refunded only when nothing was dispatched.
 export function refundAmount(order) {
   return order.rejectedBy === "seller" || !order.sellerConfirmed ? order.total : order.subtotal;
+}
+
+// A paid order the seller has not answered by this time is refunded in full.
+export function acceptDeadline(order) {
+  return order.createdAt + ACCEPT_WINDOW_MS;
 }
 
 export function supportDeadline(order) {
