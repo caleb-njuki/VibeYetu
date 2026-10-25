@@ -28,6 +28,21 @@ export function removeOffer(id) {
   write(read().filter((o) => o.id !== id));
 }
 
+// A deleted product leaves every offer that listed it. An offer left with no products is removed.
+// Offers for "all" products are not touched.
+export function removeProductFromOffers(productId) {
+  const next = [];
+  read().forEach((o) => {
+    if (Array.isArray(o.productIds) && o.productIds.includes(productId)) {
+      const rest = o.productIds.filter((id) => id !== productId);
+      if (rest.length > 0) next.push({ ...o, productIds: rest });
+    } else {
+      next.push(o);
+    }
+  });
+  write(next);
+}
+
 export function offerState(offer, now = Date.now()) {
   if (!offer.active) return "paused";
   if (now < offer.startsAt) return "scheduled";

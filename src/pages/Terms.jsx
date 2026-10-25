@@ -1,3 +1,6 @@
+import { FEE_LABEL } from "../lib/fees.js";
+
+// DRAFT wording for the fee, payout and closing sections (14 to 16). Have a lawyer review it before launch.
 const SECTIONS = [
   {
     title: "1. Escrow",
@@ -50,6 +53,18 @@ const SECTIONS = [
   {
     title: "13. Suspension (sellers)",
     text: "An order is unfulfilled when the seller does not answer in time, rejects it after agreeing to fulfil it, or never dispatches it before the 24-hour window ends (unless support decides in the seller's favour). If 3 orders in a row are unfulfilled, the shop is suspended automatically and buyers can no longer see it. The seller is told to write a report explaining what happened. The shop stays suspended until the report is received and support has verified it. A completed order resets the count. Orders already in progress can still be completed while a shop is suspended.",
+  },
+  {
+    title: "14. Fees (sellers)",
+    text: `Opening a shop, listing products and running offers are free. When an order is completed, VibeYetu keeps ${FEE_LABEL} of the item total from the seller's payment. The delivery fee is not part of it and goes to the seller in full. Buyers pay no extra service fee. No fee is taken on an order that is rejected or refunded. Ads are paid for separately at the price shown when you buy them. We will tell sellers before we change the fee, and a new fee applies only to orders placed after the change.`,
+  },
+  {
+    title: "15. Payout methods (sellers)",
+    text: "Sellers choose where we send their money: a Till number, a Paybill number with an account number, a Pochi la Biashara phone number or an M-Pesa phone number. You are responsible for entering the details correctly, because money sent to the number you gave us cannot be recalled by VibeYetu. Before any change to your payout details is saved, we send a one-time code (OTP) to the phone you signed up with, and we add a notice to your account so you can spot a change you did not make. Any charge that M-Pesa applies to receiving money is set by Safaricom and is not part of the VibeYetu fee.",
+  },
+  {
+    title: "16. Closing a shop and deleting products (sellers)",
+    text: "A seller may delete a product at any time. Orders already placed keep the item's name and price. A seller may close a shop from Inventory in My Shop once all open orders are finished. We ask for a reason and your password. A closed shop and its products disappear from VibeYetu at once, and its running ads and offers stop. We keep order records and payout details as the Privacy policy explains, so we can settle anything still owed and answer disputes and legal requests. Only support can reopen a closed shop.",
   },
 ];
 

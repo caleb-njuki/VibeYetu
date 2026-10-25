@@ -4,14 +4,14 @@
 import { shops as baseShops } from "../data/mock.js";
 import { findArea } from "./areas.js";
 import { normalizePhone } from "./format.js";
-import { isSuspended } from "./shopFlags.js";
+import { isClosed, isSuspended } from "./shopFlags.js";
 import { getShopSettings, saveShopSettings } from "./shopProfile.js";
 
 const ACCOUNTS_KEY = "vibeyetu_sellers";
 const SHOPS_KEY = "vibeyetu_custom_shops";
 const OWNERS_KEY = "vibeyetu_shop_owners"; // { email: [shopId, ...] }
 
-export const TERMS_VERSION = "2026-10";
+export const TERMS_VERSION = "2026-10-24"; // bumped when fees, payouts and closing a shop were added to the Terms
 // Pages fire this event after a rename or a new branch so the My Shop header refreshes.
 export const SHOPS_CHANGED = "vibeyetu:shops-changed";
 export const MAX_SHOPS_PER_SELLER = 10; // a guard against abuse; the owner can ask support for more
@@ -59,10 +59,16 @@ export const normalizeEmail = (email) => String(email || "").trim().toLowerCase(
 const demoFor = (email) => (DEMO_ENABLED ? DEMO_ACCOUNTS.find((d) => d.email === normalizeEmail(email)) : undefined);
 
 // ---- Shops owned by one seller (the main shop and every branch) ----
-export function shopIdsFor(email) {
+// Every shop the account ever had, including closed ones.
+function allShopIdsFor(email) {
   const key = normalizeEmail(email);
   const extra = asArray(owners()[key]).filter((id) => typeof id === "string");
   return [...new Set([...(demoFor(key)?.shopIds || []), ...extra])];
+}
+
+// The shops the seller can work on now. A closed shop is not one of them.
+export function shopIdsFor(email) {
+  return allShopIdsFor(email).filter((id) => !isClosed(id));
 }
 
 export function ownerEmailOf(shopId) {
@@ -282,7 +288,15 @@ export async function signInSeller(emailRaw, password) {
   // The same message for a wrong email and a wrong password, so nobody can probe for accounts.
   if (!valid) return { ok: false, message: "The email or password is not correct." };
   const ids = shopIdsFor(email);
-  if (!ids.length) return { ok: false, message: "This account has no shop yet. Please contact support." };
+  if (!ids.length) {
+    // The password was right, so it is safe to say why there is nothing to open.
+    return {
+      ok: false,
+      message: allShopIdsFor(email).length
+        ? "Your shop is closed. Contact support if you want to reopen it."
+        : "This account has no shop yet. Please contact support.",
+    };
+  }
   return { ok: true, seller: { email, shopId: ids[0] } };
 }
 

@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { CheckCircle2, Circle } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
+import PayoutMethods from "../../components/PayoutMethods.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { deleteImage } from "../../lib/images.js";
+import { getPayout } from "../../lib/payouts.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { AREAS, TOWNS, findArea } from "../../lib/areas.js";
 import { getShopSettings, saveShopSettings } from "../../lib/shopProfile.js";
@@ -20,6 +22,7 @@ export default function SellerSettings() {
   const [form, setForm] = useState(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [payout, setPayout] = useState(() => getPayout(seller.shopId));
 
   useEffect(() => {
     let live = true;
@@ -41,7 +44,6 @@ export default function SellerSettings() {
           delivery: s.fulfillment.includes("delivery"),
           pickup: s.fulfillment.includes("pickup"),
           phone: priv.phone ? localPhone(priv.phone) : "",
-          payout: priv.payout ? localPhone(priv.payout) : "",
         });
       })
       .catch(() => {});
@@ -68,7 +70,7 @@ export default function SellerSettings() {
     ["Opening hours", form.opens < form.closes],
     ["Delivery or pickup chosen", form.delivery || form.pickup],
     ["A contact phone number", Boolean(normalizePhone(form.phone))],
-    ["An M-Pesa number for payouts", Boolean(normalizePhone(form.payout))],
+    ["A payout method (Till, Paybill, Pochi la Biashara or M-Pesa)", Boolean(payout)],
   ];
   const done = checklist.filter(([, ok]) => ok).length;
 
@@ -81,9 +83,7 @@ export default function SellerSettings() {
     if (!(form.opens < form.closes)) return setError("The closing time must be after the opening time.");
     if (!form.delivery && !form.pickup) return setError("Choose delivery, pickup or both.");
     const phone = form.phone.trim() ? normalizePhone(form.phone) : "";
-    const payout = form.payout.trim() ? normalizePhone(form.payout) : "";
     if (form.phone.trim() && !phone) return setError("Enter a valid contact number, for example 0712 345 678.");
-    if (form.payout.trim() && !payout) return setError("Enter a valid M-Pesa number, for example 0712 345 678.");
     // Keep the shop's exact point unless the seller moved to a different area.
     const moved = form.areaId !== shop.areaId;
     saveShopSettings(seller.shopId, {
@@ -100,7 +100,8 @@ export default function SellerSettings() {
         closes: form.closes,
         fulfillment: [form.delivery && "delivery", form.pickup && "pickup"].filter(Boolean),
       },
-      private: { phone, payout },
+      // Keep the other private fields. Payout details are changed in their own box, with a code.
+      private: { ...getShopSettings(seller.shopId).private, phone },
     });
     if (shop.photo && shop.photo !== form.photo[0]) deleteImage(shop.photo);
     setShop((s) => ({ ...s, areaId: area.id, photo: form.photo[0] || "" }));
@@ -216,19 +217,11 @@ export default function SellerSettings() {
 
         <h2 className="border-t border-ink/10 pt-5 text-lg font-extrabold">Private details</h2>
         <p className="-mt-3 text-sm text-ink-mute">Buyers never see these.</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <label htmlFor="s-phone" className="text-sm font-semibold">
-              Contact phone
-            </label>
-            <input id="s-phone" type="tel" inputMode="tel" placeholder="0712 345 678" value={form.phone} onChange={set("phone")} className={inputCls} />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor="s-payout" className="text-sm font-semibold">
-              M-Pesa number for payouts
-            </label>
-            <input id="s-payout" type="tel" inputMode="tel" placeholder="0712 345 678" value={form.payout} onChange={set("payout")} className={inputCls} />
-          </div>
+        <div className="space-y-1.5 sm:max-w-sm">
+          <label htmlFor="s-phone" className="text-sm font-semibold">
+            Contact phone
+          </label>
+          <input id="s-phone" type="tel" inputMode="tel" placeholder="0712 345 678" value={form.phone} onChange={set("phone")} className={inputCls} />
         </div>
 
         {error && (
@@ -243,6 +236,8 @@ export default function SellerSettings() {
         )}
         <Button type="submit">Save settings</Button>
       </form>
+
+      <PayoutMethods email={seller.email} shopId={seller.shopId} onChange={setPayout} />
     </div>
   );
 }

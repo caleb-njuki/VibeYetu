@@ -12,6 +12,7 @@ import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { PROMISES, WINDOW_MS, acceptDeadline, eventText, formatCountdown, formatWhen, getStatus, supportDeadline } from "../../lib/orders.js";
 import { formatKES, fulfillmentLabel } from "../../lib/format.js";
+import { FEE_LABEL, payoutBreakdown } from "../../lib/fees.js";
 
 const REJECT_REASONS = ["Out of stock", "Item is faulty", "Cannot deliver in time", "Other"];
 const card = "space-y-4 rounded-2xl bg-white p-5 shadow-card";
@@ -46,6 +47,9 @@ export default function SellerOrderDetail() {
 
   const status = getStatus(order, now);
   const canReject = status === "pending" || status === "accepted";
+  const money = payoutBreakdown(order);
+  // The fee is taken only when an order pays out. Rejected and refunded orders pay nothing.
+  const pays = ["pending", "accepted", "dispatched", "review", "completed"].includes(status);
 
   function onAccept() {
     const promise = PROMISES.find((p) => p.id === promiseId) || PROMISES[0];
@@ -207,7 +211,9 @@ export default function SellerOrderDetail() {
       {status === "completed" && (
         <section className={card}>
           <h2 className="text-lg font-extrabold">Payment released</h2>
-          \1
+          <p className="text-sm text-ink-soft">
+            The buyer confirmed receipt. You receive {formatKES(money.net)} after VibeYetu&apos;s {FEE_LABEL} fee.
+          </p>
           {(() => {
             const r = findRating(order.id, "shop", order.shopId);
             return r ? (
@@ -287,6 +293,43 @@ export default function SellerOrderDetail() {
           <span>{formatKES(order.total)}</span>
         </p>
       </section>
+
+      {pays && (
+        <section className={card} aria-labelledby="money-title">
+          <h2 id="money-title" className="text-lg font-extrabold">
+            {status === "completed" ? "What you received" : "What you receive"}
+          </h2>
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-ink-soft">Items</dt>
+              <dd className="font-semibold">{formatKES(money.items)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-ink-soft">VibeYetu fee ({FEE_LABEL} of items)</dt>
+              <dd className="font-semibold text-red-700">&minus; {formatKES(money.fee)}</dd>
+            </div>
+            {money.delivery > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-ink-soft">Delivery fee (yours, no fee taken)</dt>
+                <dd className="font-semibold">{formatKES(money.delivery)}</dd>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-ink/10 pt-2 text-base font-extrabold">
+              <dt>
+                {status === "completed"
+                  ? "Paid to you"
+                  : status === "review"
+                    ? "You get if support releases the money"
+                    : "You get when the buyer confirms"}
+              </dt>
+              <dd>{formatKES(money.net)}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+      {status === "refunded" && (
+        <p className="rounded-xl bg-ivory px-4 py-3 text-sm text-ink-soft">No VibeYetu fee is taken on a refunded order.</p>
+      )}
 
       <section className={card}>
         <h2 className="text-lg font-extrabold">Progress</h2>

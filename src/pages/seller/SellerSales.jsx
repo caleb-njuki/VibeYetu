@@ -3,6 +3,7 @@ import useNow from "../../hooks/useNow.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { formatKES } from "../../lib/format.js";
+import { FEE_LABEL, platformFee } from "../../lib/fees.js";
 
 const PERIODS = [
   ["today", "Today"],
@@ -73,9 +74,13 @@ export default function SellerSales() {
     );
 
     const revenue = sales.reduce((n, o) => n + o.subtotal, 0);
+    // The fee is worked out order by order, the way it is taken when each order pays out.
+    const fees = sales.reduce((n, o) => n + platformFee(o.subtotal), 0);
     return {
       buckets,
       revenue,
+      fees,
+      net: revenue - fees,
       count: sales.length,
       items: sales.reduce((n, o) => n + (o.items || []).reduce((k, i) => k + i.qty, 0), 0),
       average: sales.length ? Math.round(revenue / sales.length) : 0,
@@ -83,9 +88,9 @@ export default function SellerSales() {
     };
   }, [orders, seller.shopId, period, now]);
 
-  const held = orders
-    .filter((o) => o.shopId === seller.shopId && ["pending", "accepted", "dispatched"].includes(o.status))
-    .reduce((n, o) => n + o.subtotal, 0);
+  const heldOrders = orders.filter((o) => o.shopId === seller.shopId && ["pending", "accepted", "dispatched"].includes(o.status));
+  const held = heldOrders.reduce((n, o) => n + o.subtotal, 0);
+  const heldFee = heldOrders.reduce((n, o) => n + platformFee(o.subtotal), 0);
   const max = Math.max(...data.buckets.map((b) => b.value), 1);
   const step = data.buckets.length > 12 ? Math.ceil(data.buckets.length / 6) : 1;
 
@@ -112,8 +117,10 @@ export default function SellerSales() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat label="Sales" value={formatKES(data.revenue)} />
+        <Stat label={`VibeYetu fee (${FEE_LABEL})`} value={formatKES(data.fees)} />
+        <Stat label="You keep" value={formatKES(data.net)} />
         <Stat label="Orders completed" value={data.count} />
         <Stat label="Items sold" value={data.items} />
         <Stat label="Average order" value={formatKES(data.average)} />
@@ -162,7 +169,10 @@ export default function SellerSales() {
         <section className="space-y-2 rounded-2xl bg-white p-5 shadow-card">
           <h2 className="text-lg font-extrabold">Held in escrow</h2>
           <p className="text-3xl font-extrabold">{formatKES(held)}</p>
-          <p className="text-sm text-ink-mute">Paid by buyers for orders still in progress. It is released to you when each buyer confirms.</p>
+          <p className="text-sm text-ink-mute">
+            Paid by buyers for orders still in progress. It is released to you when each buyer confirms. VibeYetu&apos;s {FEE_LABEL} fee
+            ({formatKES(heldFee)} on this amount) is taken then, so you will get {formatKES(held - heldFee)} for the items.
+          </p>
         </section>
       </div>
     </div>

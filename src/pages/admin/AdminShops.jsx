@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import Button from "../../components/Button.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { listAllShops } from "../../services/api.js";
-import { getShopFlags, setShopFlags, suspendShop } from "../../lib/shopFlags.js";
+import { getShopFlags, reopenShop, setShopFlags, suspendShop } from "../../lib/shopFlags.js";
 import { SHOPS_CHANGED, ownerEmailOf, sellerSummary, ownedShops } from "../../lib/sellers.js";
 import { addNotice, currentReport, reviewSuspension } from "../../lib/suspensions.js";
 import { formatWhen } from "../../lib/orders.js";
@@ -169,6 +169,13 @@ export default function AdminShops() {
     setReload((n) => n + 1);
   }
 
+  // Support puts back a shop its owner closed, for example when the owner asks to reopen it.
+  function reopen(shopId) {
+    reopenShop(shopId);
+    window.dispatchEvent(new Event(SHOPS_CHANGED));
+    setReload((n) => n + 1);
+  }
+
   function suspend(shopId) {
     suspendShop(shopId, "admin");
     addNotice(shopId, { text: "VibeYetu support suspended your shop. Write your report so support can review it." });
@@ -196,13 +203,23 @@ export default function AdminShops() {
                 <div className="min-w-0 flex-1">
                   <p className="font-bold">
                     {s.name}
-                    {s.suspended && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800">Suspended</span>}
-                    {s.verified && !s.suspended && <span className="ml-2 rounded-full bg-vibe-light px-2 py-0.5 text-xs font-bold text-vibe-dark">Verified</span>}
+                    {s.closed && <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs font-bold text-ink-soft">Closed by owner</span>}
+                    {s.suspended && !s.closed && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800">Suspended</span>}
+                    {s.verified && !s.suspended && !s.closed && <span className="ml-2 rounded-full bg-vibe-light px-2 py-0.5 text-xs font-bold text-vibe-dark">Verified</span>}
                   </p>
                   <p className="text-sm text-ink-mute">
                     {s.town} &middot; {count} {count === 1 ? "order" : "orders"}
                   </p>
-                  {s.suspended && <SuspensionReview shopId={s.id} onDone={() => setReload((n) => n + 1)} />}
+                  {s.closed && (
+                    <div className="mt-3 space-y-1 rounded-xl border border-ink/15 bg-ivory p-4 text-sm">
+                      <p className="font-bold">Closed {s.closedAt ? formatWhen(s.closedAt) : ""}</p>
+                      <p>
+                        <span className="text-ink-mute">Reason:</span> <span className="font-semibold">{s.closeReason || "Not given"}</span>
+                      </p>
+                      {s.closeDetails && <p className="whitespace-pre-wrap text-ink-soft">{s.closeDetails}</p>}
+                    </div>
+                  )}
+                  {s.suspended && !s.closed && <SuspensionReview shopId={s.id} onDone={() => setReload((n) => n + 1)} />}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-sm font-semibold text-vibe">Seller details</summary>
                     <div className="mt-2 rounded-xl bg-ivory-dark p-3">
@@ -211,13 +228,21 @@ export default function AdminShops() {
                   </details>
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="outline" size="sm" onClick={() => change(s.id, { verified: !s.verified })}>
-                    {s.verified ? "Remove verified badge" : "Mark verified"}
-                  </Button>
-                  {!s.suspended && (
-                    <Button variant="ghost" size="sm" onClick={() => suspend(s.id)}>
-                      Suspend
+                  {s.closed ? (
+                    <Button variant="outline" size="sm" onClick={() => reopen(s.id)}>
+                      Reopen shop
                     </Button>
+                  ) : (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => change(s.id, { verified: !s.verified })}>
+                        {s.verified ? "Remove verified badge" : "Mark verified"}
+                      </Button>
+                      {!s.suspended && (
+                        <Button variant="ghost" size="sm" onClick={() => suspend(s.id)}>
+                          Suspend
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               </li>

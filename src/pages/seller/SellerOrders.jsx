@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import StatusBadge from "../../components/StatusBadge.jsx";
 import useNow from "../../hooks/useNow.js";
 import useNotifications from "../../hooks/useNotifications.js";
-import { getShopSettings } from "../../lib/shopProfile.js";
+import { hasPayout } from "../../lib/payouts.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { acceptDeadline, formatCountdown, formatWhen, getStatus, sellerAction } from "../../lib/orders.js";
@@ -45,9 +45,9 @@ export default function SellerOrders() {
         </p>
       )}
 
-      {!getShopSettings(seller.shopId).private.payout && (
+      {!hasPayout(seller.shopId) && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Add your M-Pesa number in{" "}
+          Add a payout method (Till, Paybill or Pochi la Biashara) in{" "}
           <Link to="/my-shop/settings" className="font-semibold underline">
             Settings
           </Link>{" "}

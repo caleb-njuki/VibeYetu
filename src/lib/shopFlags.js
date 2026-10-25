@@ -22,6 +22,8 @@ export function setShopFlags(shopId, flags) {
 }
 
 export const isSuspended = (shopId) => Boolean(read()[shopId]?.suspended);
+// A closed shop was closed by its owner. Buyers cannot see it. Only support can reopen it.
+export const isClosed = (shopId) => Boolean(read()[shopId]?.closed);
 export const getShopFlags = (shopId) => ({ ...(read()[shopId] || {}) });
 export const allShopFlags = () => read();
 
@@ -33,6 +35,11 @@ export function suspendShop(shopId, kind, extra = {}) {
 // Only orders placed after `reinstatedAt` count towards the next streak.
 export function reinstateShop(shopId) {
   setShopFlags(shopId, { suspended: false, reinstatedAt: Date.now() });
+}
+
+// Support puts a closed shop back. The owner's reason for closing stays on file.
+export function reopenShop(shopId) {
+  setShopFlags(shopId, { closed: false, reopenedAt: Date.now() });
 }
 
 export function applyShopFlags(shop) {

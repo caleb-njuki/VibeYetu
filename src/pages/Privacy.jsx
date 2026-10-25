@@ -9,7 +9,7 @@ const SECTIONS = [
     title: "2. What we collect",
     list: [
       "Buyers: your phone number, the area you shop from, and your orders and ratings.",
-      "Sellers: your full name, national ID number, phone number, email, and, if you have them, your KRA PIN and business registration details. Also your shop details and, later, your payout details.",
+      "Sellers: your full name, national ID number, phone number, email, and, if you have them, your KRA PIN and business registration details. Also your shop details, your payout details (a Till, Paybill, Pochi la Biashara or M-Pesa number) and, if you close a shop, the reason you give.",
       "How you use the site, for example orders, reports and messages to support, so we can run escrow and settle disputes.",
     ],
   },

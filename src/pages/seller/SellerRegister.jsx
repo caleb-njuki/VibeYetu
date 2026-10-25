@@ -6,6 +6,7 @@ import ShopNameField from "../../components/ShopNameField.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { AREAS, TOWNS } from "../../lib/areas.js";
 import { checkShopName, registerSeller, validateAccountStep, validateDetailsStep } from "../../lib/sellers.js";
+import { FEE_LABEL } from "../../lib/fees.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
 const STEPS = ["Account", "Your details", "Your shop"];
@@ -248,6 +249,11 @@ export default function SellerRegister() {
                 className={inputCls}
               />
             </Field>
+
+            <p className="rounded-xl bg-vibe-light px-4 py-3 text-sm text-vibe-dark">
+              <strong>Fees:</strong> opening a shop and listing products is free. VibeYetu keeps {FEE_LABEL} of the item total when an order
+              is completed, and nothing if you do not sell. Buyers pay nothing extra.
+            </p>
 
             <div className="space-y-2.5 border-t border-ink/10 pt-4">
               <label className="flex items-start gap-2 text-sm text-ink-soft">

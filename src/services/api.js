@@ -2,11 +2,12 @@
 // to the backend (fetch("/api/...")). The pages will not need to change.
 import { categories, shops as baseShops, products as baseProducts } from "../data/mock.js";
 import { applyShopProfile } from "../lib/shopProfile.js";
-import { applyShopFlags, isSuspended } from "../lib/shopFlags.js";
+import { applyShopFlags, isClosed, isSuspended } from "../lib/shopFlags.js";
 import { adjustStock, withStock } from "../lib/stock.js";
-import { applyCatalog, createProduct, newProductId, updateProduct } from "../lib/catalog.js";
-import { applyOffer } from "../lib/offers.js";
-import { MAX_LIVE_ADS, adLink, liveAds } from "../lib/ads.js";
+import { applyCatalog, createProduct, newProductId, removeProduct, updateProduct } from "../lib/catalog.js";
+import { applyOffer, removeProductFromOffers } from "../lib/offers.js";
+import { MAX_LIVE_ADS, adLink, listAds, liveAds, stopAd } from "../lib/ads.js";
+import { deleteImage } from "../lib/images.js";
 import { hasLocation, withDistance } from "../lib/geo.js";
 import { soldCounts } from "../lib/sales.js";
 import { withRatings } from "../lib/ratings.js";
@@ -26,7 +27,7 @@ const applyShopRatings = (s) => {
 const allShops = () => [...baseShops, ...customShops().map(({ ownerEmail, ...shop }) => shop)];
 const shopList = () => allShops().map(applyShopProfile).map(applyShopFlags).map(applyShopRatings);
 const catalog = () => applyCatalog(baseProducts);
-const liveProducts = () => catalog().filter((p) => p.active !== false && !isSuspended(p.shopId));
+const liveProducts = () => catalog().filter((p) => p.active !== false && !isSuspended(p.shopId) && !isClosed(p.shopId));
 
 // `near` is the buyer's point: { lat, lng, radiusKm }. When it is given, shops get
 // their distance, delivery time and open or closed, and far shops are left out.
@@ -86,7 +87,8 @@ export async function getProduct(id, near) {
 export async function getShop(id, near) {
   await wait();
   const shop = shopList().find((s) => s.id === id);
-  if (!shop) return null;
+  // A shop its owner closed is gone for buyers, as if it never existed.
+  if (!shop || shop.closed) return null;
   return {
     ...placeShop(shop, near),
     products: liveProducts()
@@ -115,6 +117,14 @@ export async function placeOrders({ items, modes }) {
   // A shop can be suspended after its items went into a cart. Stop before any payment is taken.
   if (items.some((i) => isSuspended(i.shopId))) {
     throw new Error("A shop in your cart is not taking orders right now. Please remove its items and try again.");
+  }
+  if (items.some((i) => isClosed(i.shopId))) {
+    throw new Error("A shop in your cart has closed. Please remove its items and try again.");
+  }
+  // A product can be hidden or deleted after it went into a cart.
+  const forSale = new Set(liveProducts().map((p) => p.id));
+  if (items.some((i) => !forSale.has(i.id))) {
+    throw new Error("An item in your cart is no longer for sale. Please remove it and try again.");
   }
   const byShop = new Map();
   items.forEach((i) => {
@@ -180,6 +190,22 @@ export async function updateShopProduct(id, changes) {
   return true;
 }
 
+// Deletes one of the shop's own products for good. Past orders keep the item's name and price.
+// The product also leaves any offers, and ads that pointed at it are stopped.
+export async function deleteShopProduct(shopId, id) {
+  await wait(300);
+  const found = catalog().find((p) => p.id === id);
+  if (!found) throw new Error("This product no longer exists.");
+  if (found.shopId !== shopId) throw new Error("This product does not belong to your shop.");
+  removeProduct(id);
+  (found.images || []).forEach(deleteImage);
+  removeProductFromOffers(id);
+  listAds()
+    .filter((a) => a.target === "product" && a.productId === id)
+    .forEach((a) => stopAd(a.id));
+  return true;
+}
+
 // ---- Admin ----
 export async function listAllShops() {
   await wait(150);
@@ -198,7 +224,7 @@ const shuffled = (list) =>
 export async function getLiveAds(near) {
   await wait(150);
   const eligible = liveAds()
-    .filter((a) => !isSuspended(a.shopId))
+    .filter((a) => !isSuspended(a.shopId) && !isClosed(a.shopId))
     .map((a) => ({ ...a, shop: placeShop(shopList().find((s) => s.id === a.shopId), near) }))
     .filter((a) => isNear(a.shop, near));
   return shuffled(eligible)
@@ -229,7 +255,7 @@ export async function getHome(near) {
     .filter((p) => isNear(p.shop, near))
     .sort(byDistance);
   const shops = shopList()
-    .filter((s) => !s.suspended)
+    .filter((s) => !s.suspended && !s.closed)
     .map((s) => placeShop(s, near))
     .filter((s) => isNear(s, near) && nearby.some((p) => p.shopId === s.id))
     .sort((a, b) => (a.distanceKm ?? 1e9) - (b.distanceKm ?? 1e9));

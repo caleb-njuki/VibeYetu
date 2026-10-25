@@ -5,6 +5,8 @@ const VARIANTS = {
   dark: "bg-ink text-white hover:bg-ink-soft",
   outline: "border border-ink/20 text-ink hover:bg-ink/5",
   ghost: "text-ink hover:bg-ink/5",
+  danger: "bg-red-700 text-white hover:bg-red-800",
+  "danger-ghost": "text-red-700 hover:bg-red-50",
 };
 
 const SIZES = {
