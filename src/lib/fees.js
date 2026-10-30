@@ -1,7 +1,7 @@
 // VibeYetu's service fee. The seller pays it. Buyers are never charged extra.
 // It is taken from the item total when the buyer confirms and the money is released.
 // The delivery fee goes to the seller in full. The backend reads this same rate later.
-export const PLATFORM_FEE_PERCENT = 1.5;
+export const PLATFORM_FEE_PERCENT = 5.5;
 export const FEE_LABEL = `${PLATFORM_FEE_PERCENT}%`;
 
 // Whole shillings, rounded to the nearest one.
