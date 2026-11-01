@@ -9,7 +9,6 @@ import { reportAd } from "../lib/ads.js";
 const HOUSE_SLIDE = {
   id: "house",
   house: true,
-  theme: "blue",
   headline: "Shop nearby. Pay safely.",
   subtext: "Every order is protected by escrow. Your money is released only when you are happy.",
   cta: "Start shopping",

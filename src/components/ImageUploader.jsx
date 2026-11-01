@@ -3,7 +3,7 @@ import { ImagePlus, X } from "lucide-react";
 import { compressImage, imageSrc, saveImage } from "../lib/images.js";
 
 // Pick photos from the phone or computer. `value` is a list of saved photo ids.
-export default function ImageUploader({ label, value, onChange, max = 4 }) {
+export default function ImageUploader({ label, value, onChange, max = 4, maxSize }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef(null);
@@ -18,7 +18,7 @@ export default function ImageUploader({ label, value, onChange, max = 4 }) {
     const added = [];
     try {
       for (const file of files.slice(0, room)) {
-        added.push(saveImage(await compressImage(file)));
+        added.push(saveImage(await compressImage(file, maxSize)));
       }
       if (files.length > room) setError(`Only ${max} ${max === 1 ? "photo is" : "photos are"} allowed.`);
     } catch (err) {
