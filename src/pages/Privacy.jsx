@@ -8,7 +8,7 @@ const SECTIONS = [
   {
     title: "2. What we collect",
     list: [
-      "Buyers: your phone number, the area you shop from, and your orders and ratings.",
+      "Buyers: your phone number, the name and delivery location you give when you order, the area you shop from, and your orders and ratings.",
       "Sellers: your full name, national ID number, phone number, email, and, if you have them, your KRA PIN and business registration details. Also your shop details, your payout details (a Till, Paybill, Pochi la Biashara or M-Pesa number) and, if you close a shop, the reason you give.",
       "How you use the site, for example orders, reports and messages to support, so we can run escrow and settle disputes.",
     ],
@@ -29,7 +29,8 @@ const SECTIONS = [
   {
     title: "5. Who can see it",
     list: [
-      "Buyers and other sellers never see a seller's ID number, KRA PIN or phone number.",
+      "Buyers and other sellers never see a seller's ID number or KRA PIN.",
+      "A seller's contact phone number is shown only to a buyer who has an order with that shop, on that order. A buyer's name, phone number and delivery location are shown only to the shop they ordered from, on that order. Both sides must use these details only to complete the order.",
       "Only authorised VibeYetu support staff can see seller verification details, and only to do their work.",
       "Payment providers receive only what they need to process a payment.",
       "We share information with the police or a court only when the law requires it.",

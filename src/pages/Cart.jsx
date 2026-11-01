@@ -4,6 +4,7 @@ import Button from "../components/Button.jsx";
 import QtyStepper from "../components/QtyStepper.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { formatKES } from "../lib/format.js";
+import { formatSize } from "../lib/sizes.js";
 
 export default function Cart() {
   const { items, total, count, setQty, remove } = useCart();
@@ -44,7 +45,7 @@ export default function Cart() {
               </h2>
               <ul className="divide-y divide-ink/10">
                 {g.items.map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 py-3">
+                  <li key={item.key || item.id} className="flex items-center gap-3 py-3">
                     <Link
                       to={`/product/${item.id}`}
                       className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl text-3xl"
@@ -57,15 +58,18 @@ export default function Cart() {
                       <Link to={`/product/${item.id}`} className="line-clamp-1 font-semibold hover:text-vibe">
                         {item.name}
                       </Link>
-                      <p className="text-sm text-ink-mute">{formatKES(item.price)}</p>
-                      <QtyStepper value={item.qty} onChange={(n) => setQty(item.id, n)} />
+                      <p className="text-sm text-ink-mute">
+                        {formatKES(item.price)}
+                        {item.size && <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs font-bold text-ink-soft">{formatSize(item.sizeType, item.size)}</span>}
+                      </p>
+                      <QtyStepper value={item.qty} onChange={(n) => setQty(item.key || item.id, n)} />
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <span className="font-extrabold">{formatKES(item.price * item.qty)}</span>
                       <button
                         type="button"
-                        onClick={() => remove(item.id)}
-                        aria-label={`Remove ${item.name}`}
+                        onClick={() => remove(item.key || item.id)}
+                        aria-label={`Remove ${item.name}${item.size ? ` in ${formatSize(item.sizeType, item.size)}` : ""}`}
                         className="rounded-full p-2 text-ink-mute hover:bg-ink/5 hover:text-red-700"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />

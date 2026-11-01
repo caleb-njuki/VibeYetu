@@ -3,10 +3,10 @@ import { Link } from "react-router-dom";
 import { CheckCircle2, Circle } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
-import PayoutMethods from "../../components/PayoutMethods.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { deleteImage } from "../../lib/images.js";
 import { getPayout } from "../../lib/payouts.js";
+import { getDeliveryFee } from "../../lib/delivery.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { AREAS, TOWNS, findArea } from "../../lib/areas.js";
 import { getShopSettings, saveShopSettings } from "../../lib/shopProfile.js";
@@ -22,7 +22,9 @@ export default function SellerSettings() {
   const [form, setForm] = useState(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const [payout, setPayout] = useState(() => getPayout(seller.shopId));
+  // Both are set on the Payments tab, so they are read again each time this page opens.
+  const payout = getPayout(seller.shopId);
+  const deliveryFee = getDeliveryFee(seller.shopId);
 
   useEffect(() => {
     let live = true;
@@ -70,7 +72,8 @@ export default function SellerSettings() {
     ["Opening hours", form.opens < form.closes],
     ["Delivery or pickup chosen", form.delivery || form.pickup],
     ["A contact phone number", Boolean(normalizePhone(form.phone))],
-    ["A payout method (Till, Paybill, Pochi la Biashara or M-Pesa)", Boolean(payout)],
+    ["A payout method (Till, Paybill, Pochi la Biashara or M-Pesa), set on the Payments tab", Boolean(payout)],
+    ["A delivery fee, set on the Payments tab (not needed if you only offer pickup)", !form.delivery || deliveryFee !== null],
   ];
   const done = checklist.filter(([, ok]) => ok).length;
 
@@ -116,7 +119,7 @@ export default function SellerSettings() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-3xl font-extrabold">Shop settings</h1>
-          <p className="text-sm text-ink-mute">What buyers see about your shop, and how you get paid.</p>
+          <p className="text-sm text-ink-mute">What buyers see about your shop. Payout methods and your delivery fee are on the Payments tab.</p>
         </div>
         <Link to={`/shop/${seller.shopId}`} className="text-sm font-semibold text-vibe hover:underline">
           View my shop as a buyer
@@ -209,6 +212,15 @@ export default function SellerSettings() {
             <input type="checkbox" checked={form.delivery} onChange={toggle("delivery")} className="accent-vibe" />
             Delivery
           </label>
+          {form.delivery && deliveryFee === null && (
+            <p className="text-xs font-semibold text-amber-900">
+              You have not set a delivery fee yet, so buyers cannot choose delivery.{" "}
+              <Link to="/my-shop/payments" className="text-vibe underline">
+                Set it on the Payments tab
+              </Link>
+              .
+            </p>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.pickup} onChange={toggle("pickup")} className="accent-vibe" />
             Pickup at my shop
@@ -216,7 +228,7 @@ export default function SellerSettings() {
         </fieldset>
 
         <h2 className="border-t border-ink/10 pt-5 text-lg font-extrabold">Private details</h2>
-        <p className="-mt-3 text-sm text-ink-mute">Buyers never see these.</p>
+        <p className="-mt-3 text-sm text-ink-mute">Not shown on your shop page. Your contact phone is shown to buyers who have an order with you, so they can reach you.</p>
         <div className="space-y-1.5 sm:max-w-sm">
           <label htmlFor="s-phone" className="text-sm font-semibold">
             Contact phone
@@ -237,7 +249,19 @@ export default function SellerSettings() {
         <Button type="submit">Save settings</Button>
       </form>
 
-      <PayoutMethods email={seller.email} shopId={seller.shopId} onChange={setPayout} />
+      <section className="space-y-2 rounded-2xl bg-white p-5 shadow-card" aria-labelledby="pay-title">
+        <h2 id="pay-title" className="text-lg font-extrabold">
+          Payments
+        </h2>
+        <p className="text-sm text-ink-soft">
+          {payout ? "Your payout method is saved." : "You have not added a payout method yet, so you cannot be paid."} Add or change
+          it, and set your delivery fee, on the{" "}
+          <Link to="/my-shop/payments" className="font-semibold text-vibe underline">
+            Payments tab
+          </Link>
+          .
+        </p>
+      </section>
     </div>
   );
 }

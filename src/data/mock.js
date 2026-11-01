@@ -13,13 +13,13 @@ export const shops = [
     id: "s1", name: "Nairobi Threads", areaId: "westlands", area: "Westlands", town: "Nairobi", lat: -1.268, lng: 36.811,
     opens: "08:00", closes: "19:00", verified: true, rating: 4.7, reviews: 128, since: 2023,
     description: "Everyday and occasion wear from local designers. Ankara, denim and shoes.",
-    fulfillment: ["delivery", "pickup"],
+    fulfillment: ["delivery", "pickup"], deliveryFee: 150,
   },
   {
     id: "s2", name: "Kilimani Tech Hub", areaId: "kilimani", area: "Kilimani", town: "Nairobi", lat: -1.291, lng: 36.786,
     opens: "09:00", closes: "20:00", verified: true, rating: 4.5, reviews: 86, since: 2024,
     description: "Phone accessories, audio and smart home gadgets, tested before they ship.",
-    fulfillment: ["delivery", "pickup"],
+    fulfillment: ["delivery", "pickup"], deliveryFee: 120,
   },
   {
     id: "s3", name: "Karen Crafts & Pantry", areaId: "karen", area: "Karen", town: "Nairobi", lat: -1.3195, lng: 36.711,
@@ -31,15 +31,15 @@ export const shops = [
     id: "s4", name: "Nyali Beach Bazaar", areaId: "nyali", area: "Nyali", town: "Mombasa", lat: -4.021, lng: 39.716,
     opens: "09:00", closes: "18:00", verified: true, rating: 4.6, reviews: 64, since: 2024,
     description: "Beach and coast favourites: towels, coconut oil and island gifts.",
-    fulfillment: ["delivery", "pickup"],
+    fulfillment: ["delivery", "pickup"], deliveryFee: 200,
   },
 ];
 
 const daysAgo = (n) => Date.now() - n * 24 * 60 * 60 * 1000;
 
 export const products = [
-  { id: "p1", addedAt: daysAgo(40), sold: 96, name: "Ankara Maxi Dress", price: 2800, category: "fashion", emoji: "👗", hue: 25, rating: 4.8, shopId: "s1", stock: 12, description: "Flowing maxi dress in bold Ankara print. Lined, with side pockets. Available in sizes S to XL." },
-  { id: "p2", addedAt: daysAgo(30), sold: 41, name: "Leather Sneakers", price: 4500, category: "fashion", emoji: "👟", hue: 200, rating: 4.6, shopId: "s1", stock: 4, description: "Genuine leather sneakers with a cushioned sole. Clean white finish that goes with everything." },
+  { id: "p1", addedAt: daysAgo(40), sold: 96, name: "Ankara Maxi Dress", price: 2800, category: "fashion", sizeType: "clothing", sizes: { S: 3, M: 4, L: 3, XL: 2 }, emoji: "👗", hue: 25, rating: 4.8, shopId: "s1", stock: 12, description: "Flowing maxi dress in bold Ankara print. Lined, with side pockets. Available in sizes S to XL." },
+  { id: "p2", addedAt: daysAgo(30), sold: 41, name: "Leather Sneakers", price: 4500, category: "fashion", sizeType: "shoes", sizes: { "40": 1, "41": 1, "42": 1, "43": 1 }, emoji: "👟", hue: 200, rating: 4.6, shopId: "s1", stock: 4, description: "Genuine leather sneakers with a cushioned sole. Clean white finish that goes with everything." },
   { id: "p3", addedAt: daysAgo(21), sold: 210, name: "Wireless Earbuds", price: 3200, category: "electronics", emoji: "🎧", hue: 260, rating: 4.5, shopId: "s2", stock: 25, description: "Bluetooth 5.3 earbuds with a charging case and up to 20 hours of total playtime." },
   { id: "p4", addedAt: daysAgo(12), sold: 58, name: "Smart LED Bulb Set", price: 1800, category: "electronics", emoji: "💡", hue: 50, rating: 4.4, shopId: "s2", stock: 9, description: "Set of two colour-changing bulbs you control from your phone. E27 fitting." },
   { id: "p5", addedAt: daysAgo(8), sold: 132, name: "Kiondo Basket", price: 1500, category: "home", emoji: "🧺", hue: 30, rating: 4.9, shopId: "s3", stock: 7, description: "Hand-woven kiondo with a leather strap. Strong, stylish and made by local weavers." },

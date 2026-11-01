@@ -10,12 +10,14 @@ import StarInput, { Stars } from "../components/StarInput.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { useOrders } from "../context/OrdersContext.jsx";
 import { useUserLocation } from "../context/LocationContext.jsx";
-import { DELIVERY_FEE, getProduct, getRelated } from "../services/api.js";
+import { getProduct, getRelated } from "../services/api.js";
+import { buyerModes, feeText } from "../lib/delivery.js";
 import { addRating, findRating, ratingsFor } from "../lib/ratings.js";
 import { imageSrc } from "../lib/images.js";
 import { formatKES, fulfillmentLabel } from "../lib/format.js";
 import { formatDistance } from "../lib/geo.js";
 import { formatWhen } from "../lib/orders.js";
+import { formatSize, hasSizes, sizeEntries, sizeWord } from "../lib/sizes.js";
 
 function Fact({ icon: Icon, children }) {
   return (
@@ -35,6 +37,8 @@ export default function Product() {
   const [related, setRelated] = useState({ fromShop: [], similar: [] });
   const [loading, setLoading] = useState(true);
   const [qty, setQty] = useState(1);
+  const [size, setSize] = useState("");
+  const [sizeError, setSizeError] = useState("");
   const [added, setAdded] = useState(false);
   const [active, setActive] = useState(0);
   const [refresh, setRefresh] = useState(0);
@@ -46,6 +50,8 @@ export default function Product() {
     let live = true;
     setLoading(true);
     setQty(1);
+    setSize("");
+    setSizeError("");
     setAdded(false);
     setActive(0);
     setStars(0);
@@ -107,13 +113,17 @@ export default function Product() {
 
   const { shop } = product;
   const soldOut = product.stock <= 0;
-  const maxQty = Math.min(10, Math.max(product.stock, 1));
+  const sized = hasSizes(product);
+  const sizeList = sized ? sizeEntries(product.sizeType, product.sizes) : [];
+  // With sizes, the most the buyer can take is what is left in the chosen size.
+  const stockHere = sized ? (size ? product.sizes[size] || 0 : 0) : product.stock;
+  const maxQty = Math.min(10, Math.max(sized && !size ? 1 : stockHere, 1));
   const photos = (product.images || []).filter((imgId) => imageSrc(imgId));
   const reviews = ratingsFor("product", product.id);
   const eligibleOrder = orders.find(
     (o) => o.status === "completed" && (o.items || []).some((i) => i.productId === product.id) && !findRating(o.id, "product", product.id)
   );
-  const delivers = shop?.fulfillment.includes("delivery");
+  const delivers = shop ? buyerModes(shop).includes("delivery") : false;
   const shareUrl = `https://wa.me/?text=${encodeURIComponent(`${product.name} on VibeYetu: ${window.location.href}`)}`;
 
   function submitRating(e) {
@@ -208,13 +218,64 @@ export default function Product() {
               <p className="font-bold text-red-700">Out of stock</p>
             ) : (
               <div className="space-y-3">
-                {product.stock <= 5 && <p className="text-sm font-semibold text-red-700">Only {product.stock} left</p>}
+                {sized && (
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-bold">Choose your {sizeWord(product.sizeType)}</legend>
+                    <div className="flex flex-wrap gap-2">
+                      {sizeList.map(([s, n]) => {
+                        const out = n <= 0;
+                        const on = size === s;
+                        return (
+                          <label
+                            key={s}
+                            className={`relative flex min-w-[3.25rem] items-center justify-center rounded-xl border px-3 py-2 text-sm font-bold ${
+                              out
+                                ? "cursor-not-allowed border-ink/10 bg-ink/5 text-ink-mute line-through"
+                                : on
+                                  ? "cursor-pointer border-vibe bg-vibe-light text-vibe-dark"
+                                  : "cursor-pointer border-ink/20 bg-white hover:border-vibe"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="size"
+                              value={s}
+                              checked={on}
+                              disabled={out}
+                              onChange={() => {
+                                setSize(s);
+                                setSizeError("");
+                                setAdded(false);
+                                setQty((q) => Math.max(1, Math.min(q, n)));
+                              }}
+                              className="sr-only"
+                            />
+                            {formatSize(product.sizeType, s)}
+                            {out && <span className="sr-only"> (sold out)</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {size && stockHere <= 5 && <p className="text-sm font-semibold text-red-700">Only {stockHere} left in {formatSize(product.sizeType, size)}</p>}
+                    <p className="text-xs text-ink-mute">Sizes can differ between sellers. If you are not sure, call the seller after you order, or check the description.</p>
+                    {sizeError && (
+                      <p role="alert" className="text-sm font-semibold text-red-700">
+                        {sizeError}
+                      </p>
+                    )}
+                  </fieldset>
+                )}
+                {!sized && product.stock <= 5 && <p className="text-sm font-semibold text-red-700">Only {product.stock} left</p>}
                 <div className="flex flex-wrap items-center gap-3">
                   <QtyStepper value={qty} onChange={(n) => setQty(Math.max(1, Math.min(maxQty, n)))} max={maxQty} />
                   <Button
                     size="lg"
                     onClick={() => {
-                      add(product, qty);
+                      if (sized && !size) {
+                        setSizeError(`Choose a ${sizeWord(product.sizeType)} first.`);
+                        return;
+                      }
+                      add(product, qty, size);
                       setAdded(true);
                     }}
                   >
@@ -247,9 +308,11 @@ export default function Product() {
               {shop && (
                 <Fact icon={Truck}>
                   {delivers && shop.etaMinutes
-                    ? `Delivery in about ${shop.etaMinutes} minutes for ${formatKES(DELIVERY_FEE)}.`
-                    : `${shop.fulfillment.map(fulfillmentLabel).join(" and ")} only.`}
-                  {delivers && shop.fulfillment.includes("pickup") && " Pickup is free."}
+                    ? `Delivery in about ${shop.etaMinutes} minutes for ${feeText(shop.deliveryFee)}.`
+                    : delivers
+                      ? `Delivery costs ${feeText(shop.deliveryFee)}.`
+                      : `${buyerModes(shop).map(fulfillmentLabel).join(" and ")} only.`}
+                  {delivers && buyerModes(shop).includes("pickup") && " Pickup is free."}
                 </Fact>
               )}
               {shop?.opens && (

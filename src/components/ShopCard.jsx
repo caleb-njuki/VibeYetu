@@ -2,9 +2,10 @@ import { Link } from "react-router-dom";
 import { BadgeCheck, MapPin, Star } from "lucide-react";
 import { formatDistance } from "../lib/geo.js";
 import ShopAvatar from "./ShopAvatar.jsx";
+import { buyerModes } from "../lib/delivery.js";
 
 export default function ShopCard({ shop }) {
-  const delivers = shop.fulfillment?.includes("delivery");
+  const delivers = buyerModes(shop).includes("delivery");
   return (
     <Link
       to={`/shop/${shop.id}`}

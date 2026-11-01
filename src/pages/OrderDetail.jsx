@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Clock, ShieldCheck } from "lucide-react";
+import { Clock, MapPin, ShieldCheck, Store, User } from "lucide-react";
+import PhoneLink from "../components/PhoneLink.jsx";
 import Button from "../components/Button.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import ReviewForm from "../components/ReviewForm.jsx";
@@ -10,6 +11,8 @@ import useNotifications from "../hooks/useNotifications.js";
 import { useOrders } from "../context/OrdersContext.jsx";
 import { WINDOW_MS, eventText, formatCountdown, formatWhen, getStatus, refundAmount, supportDeadline } from "../lib/orders.js";
 import { formatKES, fulfillmentLabel } from "../lib/format.js";
+import { hasBuyerDetails, orderLocation, sellerPhoneFor } from "../lib/contacts.js";
+import { formatSize } from "../lib/sizes.js";
 
 const REJECT_REASONS = ["Item is faulty", "Wrong item", "Not as described", "Damaged in transit"];
 const card = "space-y-4 rounded-2xl bg-white p-5 shadow-card";
@@ -43,6 +46,7 @@ export default function OrderDetail() {
   }
 
   const status = getStatus(order, now);
+  const sellerPhone = sellerPhoneFor(order.shopId);
   const bySeller = order.rejectedBy === "seller";
   const windowLeft = formatCountdown(order.acceptedAt + WINDOW_MS - now);
 
@@ -186,7 +190,9 @@ export default function OrderDetail() {
       {status === "completed" && (
         <section className={card}>
           <h2 className="text-lg font-extrabold">Order complete</h2>
-          \1
+          <p className="text-sm text-ink-soft">
+            You confirmed receipt, so the payment was released to {order.shopName}. Thank you for shopping on VibeYetu.
+          </p>
           <RateSeller order={order} />
         </section>
       )}
@@ -239,10 +245,11 @@ export default function OrderDetail() {
           Items
         </h2>
         <ul className="divide-y divide-ink/10 text-sm">
-          {(order.items || []).map((i) => (
-            <li key={i.name} className="flex justify-between py-2">
+          {(order.items || []).map((i, n) => (
+            <li key={`${i.productId || i.name}-${i.size || ""}-${n}`} className="flex justify-between py-2">
               <span>
-                {i.name} &times; {i.qty}
+                {i.name}
+                {i.size && <span className="ml-1.5 rounded-full bg-ink/10 px-2 py-0.5 text-xs font-bold">{formatSize(i.sizeType, i.size)}</span>} &times; {i.qty}
               </span>
               <span className="font-semibold">{formatKES(i.price * i.qty)}</span>
             </li>
@@ -263,6 +270,63 @@ export default function OrderDetail() {
           Protected by VibeYetu escrow.
         </p>
       </section>
+
+      <section className={card} aria-labelledby="seller-title">
+        <h2 id="seller-title" className="text-lg font-extrabold">
+          The seller
+        </h2>
+        <dl className="space-y-2 text-sm">
+          <div className="flex items-center gap-2">
+            <dt className="flex w-24 shrink-0 items-center gap-1.5 text-ink-mute">
+              <Store className="h-4 w-4" aria-hidden="true" />
+              Shop
+            </dt>
+            <dd className="font-semibold">
+              <Link to={`/shop/${order.shopId}`} className="hover:text-vibe">
+                {order.shopName}
+              </Link>
+            </dd>
+          </div>
+          <div className="flex items-center gap-2">
+            <dt className="w-24 shrink-0 text-ink-mute">Phone</dt>
+            <dd>
+              {sellerPhone ? <PhoneLink phone={sellerPhone} /> : <span className="text-ink-mute">The seller has not added a phone number yet.</span>}
+            </dd>
+          </div>
+        </dl>
+        <p className="text-xs text-ink-mute">Call the seller about this order, for example to agree on a time or ask about sizes. Keep all payments on VibeYetu so escrow protects you.</p>
+      </section>
+
+      {hasBuyerDetails(order) && (
+        <section className={card} aria-labelledby="mine-title">
+          <h2 id="mine-title" className="text-lg font-extrabold">
+            Your details for this order
+          </h2>
+          <dl className="space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <dt className="flex w-24 shrink-0 items-center gap-1.5 text-ink-mute">
+                <User className="h-4 w-4" aria-hidden="true" />
+                Name
+              </dt>
+              <dd className="font-semibold">{order.buyer.name}</dd>
+            </div>
+            <div className="flex items-center gap-2">
+              <dt className="w-24 shrink-0 text-ink-mute">Phone</dt>
+              <dd className="font-semibold">
+                <PhoneLink phone={order.buyer.phone} />
+              </dd>
+            </div>
+            <div className="flex items-start gap-2">
+              <dt className="flex w-24 shrink-0 items-center gap-1.5 text-ink-mute">
+                <MapPin className="h-4 w-4" aria-hidden="true" />
+                {order.mode === "delivery" ? "Deliver to" : "Pickup"}
+              </dt>
+              <dd className="min-w-0 break-words font-semibold">{order.mode === "delivery" ? orderLocation(order) || "No location given" : "You collect at the shop."}</dd>
+            </div>
+          </dl>
+          <p className="text-xs text-ink-mute">{order.shopName} sees these details for this order only.</p>
+        </section>
+      )}
 
       <section className={card} aria-labelledby="time-title">
         <h2 id="time-title" className="text-lg font-extrabold">

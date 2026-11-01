@@ -156,7 +156,8 @@ export function OrdersProvider({ children }) {
       if (stockDone.current.has(key)) return;
       stockDone.current.add(key);
       (o.items || []).forEach((i) => {
-        if (i.productId) adjustStock(i.productId, sign * i.qty);
+        // A product with sizes loses or regains stock in the size that was ordered.
+        if (i.productId) adjustStock(i.productId, sign * i.qty, i.size);
       });
     };
 

@@ -176,7 +176,7 @@ export default function SellerRegister() {
                 className={inputCls}
               />
             </Field>
-            <Field id="r-phone" label="Phone number" why="So support can reach you about orders. Buyers do not see it.">
+            <Field id="r-phone" label="Phone number" why="So support can reach you. Buyers who order from you also see it on their order page. It is not shown on your shop page.">
               <input id="r-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={details.phone} onChange={setD("phone")} className={inputCls} />
             </Field>
             <Field id="r-kra" label="KRA PIN (optional)" why="Helps us confirm a registered trader. Leave empty if you do not have one.">

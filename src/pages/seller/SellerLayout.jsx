@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { LogOut, Plus } from "lucide-react";
+import { LogOut } from "lucide-react";
 import Logo from "../../components/Logo.jsx";
 import NotificationBell from "../../components/NotificationBell.jsx";
 import SuspensionBanner from "../../components/SuspensionBanner.jsx";
@@ -59,6 +59,12 @@ export default function SellerLayout() {
             <NavLink to="/my-shop/ads" className={tab}>
               Ads
             </NavLink>
+            <NavLink to="/my-shop/payments" className={tab}>
+              Payments
+            </NavLink>
+            <NavLink to="/my-shop/shop" className={tab}>
+              Shop
+            </NavLink>
             <NavLink to="/my-shop/settings" className={tab}>
               Settings
             </NavLink>
@@ -105,10 +111,6 @@ export default function SellerLayout() {
                 {current?.name}
               </span>
             )}
-            <Link to="/my-shop/branches/new" className="ml-auto flex items-center gap-1 font-semibold text-vibe hover:underline">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add branch
-            </Link>
           </div>
         </div>
       </header>

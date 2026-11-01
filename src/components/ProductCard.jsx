@@ -5,6 +5,8 @@ import { useCart } from "../context/CartContext.jsx";
 import { formatKES } from "../lib/format.js";
 import ProductImage from "./ProductImage.jsx";
 import { formatDistance } from "../lib/geo.js";
+import { hasSizes, sizeRange } from "../lib/sizes.js";
+import { buyerModes } from "../lib/delivery.js";
 
 export default function ProductCard({ product }) {
   const { add } = useCart();
@@ -35,12 +37,13 @@ export default function ProductCard({ product }) {
               <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-ink-soft">
                 <MapPin className="h-3.5 w-3.5 text-vibe" aria-hidden="true" />
                 <span className="font-semibold">{formatDistance(product.shop.distanceKm)}</span>
-                <span>{product.shop.fulfillment.includes("delivery") ? `\u00b7 ~${product.shop.etaMinutes} min` : "\u00b7 Pickup"}</span>
+                <span>{buyerModes(product.shop).includes("delivery") ? `\u00b7 ~${product.shop.etaMinutes} min` : "\u00b7 Pickup"}</span>
                 {product.shop.openNow === false && <span className="font-semibold text-red-700">{"\u00b7 Closed"}</span>}
               </p>
             )}
           </>
         )}
+        {hasSizes(product) && <p className="text-xs text-ink-mute">Sizes {sizeRange(product)}</p>}
         <p className="flex items-center gap-1 text-xs text-ink-soft">
           <Star className="h-3.5 w-3.5 fill-vibe text-vibe" aria-hidden="true" />
           {product.rating ? product.rating.toFixed(1) : "New"}
@@ -53,10 +56,17 @@ export default function ProductCard({ product }) {
               <span className="ml-1.5 text-xs font-medium text-ink-mute line-through">{formatKES(product.originalPrice)}</span>
             )}
           </span>
-          <Button size="sm" variant="dark" onClick={() => add(product)} aria-label={`Add ${product.name} to cart`}>
-            <ShoppingBag className="h-4 w-4" aria-hidden="true" />
-            Add
-          </Button>
+          {hasSizes(product) ? (
+            // The buyer must pick a size first, so go to the product page.
+            <Button to={`/product/${product.id}`} size="sm" variant="dark" aria-label={`Choose a size for ${product.name}`}>
+              Choose size
+            </Button>
+          ) : (
+            <Button size="sm" variant="dark" onClick={() => add(product)} aria-label={`Add ${product.name} to cart`}>
+              <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+              Add
+            </Button>
+          )}
         </div>
       </div>
     </article>

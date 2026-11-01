@@ -4,10 +4,16 @@ const CartContext = createContext(null);
 const STORAGE_KEY = "vibeyetu_cart";
 const MAX_QTY = 10;
 
+// One cart line is one product in one size. `key` tells lines apart: the same dress in M and in L
+// are two lines. A product without sizes uses its id as the key.
+export const lineKey = (productId, size) => (size ? `${productId}::${size}` : productId);
+
 function loadCart() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // A cart saved before sizes existed has no key, so give each line one.
+    return parsed.filter((i) => i && typeof i.id === "string").map((i) => ({ ...i, key: i.key || lineKey(i.id, i.size) }));
   } catch {
     return [];
   }
@@ -29,17 +35,18 @@ export function CartProvider({ children }) {
       items,
       count: items.reduce((n, i) => n + i.qty, 0),
       total: items.reduce((n, i) => n + i.qty * i.price, 0),
-      add: (product, qty = 1) =>
+      // `size` is the raw size ("M" or "42"). Pass it for products that have sizes.
+      add: (product, qty = 1, size = "") =>
         setItems((prev) => {
-          const found = prev.find((i) => i.id === product.id);
+          const key = lineKey(product.id, size);
+          const found = prev.find((i) => i.key === key);
           if (found) {
-            return prev.map((i) =>
-              i.id === product.id ? { ...i, qty: Math.min(MAX_QTY, i.qty + qty) } : i
-            );
+            return prev.map((i) => (i.key === key ? { ...i, qty: Math.min(MAX_QTY, i.qty + qty) } : i));
           }
           return [
             ...prev,
             {
+              key,
               id: product.id,
               name: product.name,
               price: product.price,
@@ -47,15 +54,15 @@ export function CartProvider({ children }) {
               hue: product.hue,
               shopId: product.shopId,
               shopName: product.shop?.name || "Shop",
+              size: size || "",
+              sizeType: size ? product.sizeType : "",
               qty: Math.min(MAX_QTY, qty),
             },
           ];
         }),
-      setQty: (id, qty) =>
-        setItems((prev) =>
-          prev.map((i) => (i.id === id ? { ...i, qty: Math.max(1, Math.min(MAX_QTY, qty)) } : i))
-        ),
-      remove: (id) => setItems((prev) => prev.filter((i) => i.id !== id)),
+      setQty: (key, qty) =>
+        setItems((prev) => prev.map((i) => (i.key === key ? { ...i, qty: Math.max(1, Math.min(MAX_QTY, qty)) } : i))),
+      remove: (key) => setItems((prev) => prev.filter((i) => i.key !== key)),
       clear: () => setItems([]),
     }),
     [items]

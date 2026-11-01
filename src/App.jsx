@@ -31,6 +31,8 @@ import SellerInventory from "./pages/seller/SellerInventory.jsx";
 import SellerOffers from "./pages/seller/SellerOffers.jsx";
 import SellerSales from "./pages/seller/SellerSales.jsx";
 import SellerSettings from "./pages/seller/SellerSettings.jsx";
+import SellerShop from "./pages/seller/SellerShop.jsx";
+import SellerPayments from "./pages/seller/SellerPayments.jsx";
 import SellerAds from "./pages/seller/SellerAds.jsx";
 import AdminLogin from "./pages/admin/AdminLogin.jsx";
 import AdminLayout from "./pages/admin/AdminLayout.jsx";
@@ -88,6 +90,8 @@ export default function App() {
                   <Route path="sales" element={<SellerSales />} />
                   <Route path="ads" element={<SellerAds />} />
                   <Route path="settings" element={<SellerSettings />} />
+                  <Route path="shop" element={<SellerShop />} />
+                  <Route path="payments" element={<SellerPayments />} />
                   <Route path="branches/new" element={<SellerBranchNew />} />
                   <Route path="report" element={<SellerSuspension />} />
                 </Route>

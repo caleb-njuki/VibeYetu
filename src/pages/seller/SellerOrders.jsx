@@ -1,15 +1,27 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { MapPin, User } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge.jsx";
 import useNow from "../../hooks/useNow.js";
 import useNotifications from "../../hooks/useNotifications.js";
+import PhoneLink from "../../components/PhoneLink.jsx";
 import { hasPayout } from "../../lib/payouts.js";
+import { hasBuyerDetails, orderLocation } from "../../lib/contacts.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { acceptDeadline, formatCountdown, formatWhen, getStatus, sellerAction } from "../../lib/orders.js";
 import { STRIKE_LIMIT, shopStrikes } from "../../lib/strikes.js";
 import { getShopFlags } from "../../lib/shopFlags.js";
 import { formatKES, fulfillmentLabel } from "../../lib/format.js";
+import { formatSize } from "../../lib/sizes.js";
+
+const FILTERS = [
+  ["all", "All"],
+  ["new", "New"],
+  ["action", "Needs action"],
+  ["done", "Finished"],
+];
+const FINISHED = ["completed", "rejected", "refunded"];
 
 const chip = (active) =>
   `rounded-full px-4 py-2 text-sm font-semibold ${active ? "bg-ink text-white" : "bg-white shadow-card hover:bg-vibe-light"}`;
@@ -27,8 +39,14 @@ export default function SellerOrders() {
       const status = getStatus(o, now);
       return { o, status, action: sellerAction(o, status) };
     });
-  const shown = filter === "action" ? rows.filter((r) => r.action) : rows;
-  const needAction = rows.filter((r) => r.action).length;
+  const matches = {
+    all: () => true,
+    new: (r) => r.status === "pending",
+    action: (r) => Boolean(r.action),
+    done: (r) => FINISHED.includes(r.status) && !r.action,
+  };
+  const count = (key) => rows.filter(matches[key]).length;
+  const shown = rows.filter(matches[filter]);
   const flags = getShopFlags(seller.shopId);
   const strikes = shopStrikes(orders, seller.shopId, now, flags.reinstatedAt || 0);
 
@@ -55,24 +73,23 @@ export default function SellerOrders() {
         </p>
       )}
 
-      <div className="flex gap-2">
-        <button type="button" className={chip(filter === "all")} onClick={() => setFilter("all")}>
-          All ({rows.length})
-        </button>
-        <button type="button" className={chip(filter === "action")} onClick={() => setFilter("action")}>
-          Needs action ({needAction})
-        </button>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter orders">
+        {FILTERS.map(([key, label]) => (
+          <button key={key} type="button" aria-pressed={filter === key} className={chip(filter === key)} onClick={() => setFilter(key)}>
+            {label} ({count(key)})
+          </button>
+        ))}
       </div>
 
       {shown.length === 0 ? (
         <p className="rounded-2xl bg-white p-8 text-center text-ink-mute shadow-card">
-          {rows.length === 0 ? "No orders for your shop yet. New orders appear here once buyers pay." : "Nothing needs your action right now."}
+          {rows.length === 0 ? "No orders for your shop yet. New orders appear here once buyers pay." : "No orders in this list."}
         </p>
       ) : (
         <ul className="space-y-3">
           {shown.map(({ o, status, action }) => (
-            <li key={o.id}>
-              <Link to={`/my-shop/orders/${o.id}`} className="block space-y-2 rounded-2xl bg-white p-4 shadow-card hover:bg-vibe-light">
+            <li key={o.id} className="overflow-hidden rounded-2xl bg-white shadow-card">
+              <Link to={`/my-shop/orders/${o.id}`} className="block space-y-2 p-4 hover:bg-vibe-light">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-bold">Order {o.id}</p>
@@ -85,6 +102,11 @@ export default function SellerOrders() {
                     <StatusBadge status={status} />
                   </div>
                 </div>
+                <p className="text-sm text-ink-soft">
+                  {(o.items || [])
+                    .map((i) => `${i.name}${i.size ? ` (${formatSize(i.sizeType, i.size)})` : ""} \u00d7 ${i.qty}`)
+                    .join(", ")}
+                </p>
                 <p className="flex justify-between text-sm">
                   <span className="font-semibold text-vibe-dark">
                     {action || ""}
@@ -93,6 +115,24 @@ export default function SellerOrders() {
                   <span className="font-extrabold">{formatKES(o.total)}</span>
                 </p>
               </Link>
+              {/* The client's details sit outside the link, so the phone number can open the dialler. */}
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-ink/10 bg-ivory/60 px-4 py-2.5 text-sm">
+                {hasBuyerDetails(o) ? (
+                  <>
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <User className="h-4 w-4 shrink-0 text-ink-mute" aria-hidden="true" />
+                      {o.buyer.name}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-ink-soft">
+                      <MapPin className="h-4 w-4 shrink-0 text-ink-mute" aria-hidden="true" />
+                      {orderLocation(o) || "No location given"}
+                    </span>
+                    <PhoneLink phone={o.buyer.phone} />
+                  </>
+                ) : (
+                  <span className="text-ink-mute">Client details were not saved for this older order.</span>
+                )}
+              </div>
             </li>
           ))}
         </ul>

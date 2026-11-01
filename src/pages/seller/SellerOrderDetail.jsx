@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Clock } from "lucide-react";
+import { Clock, MapPin, User } from "lucide-react";
+import PhoneLink from "../../components/PhoneLink.jsx";
+import { hasBuyerDetails, orderLocation } from "../../lib/contacts.js";
+import { formatSize } from "../../lib/sizes.js";
 import Button from "../../components/Button.jsx";
 import StatusBadge from "../../components/StatusBadge.jsx";
 import ReviewForm from "../../components/ReviewForm.jsx";
@@ -126,6 +129,41 @@ export default function SellerOrderDetail() {
           {error}
         </p>
       )}
+
+      <section className={card} aria-labelledby="client-title">
+        <h2 id="client-title" className="text-lg font-extrabold">
+          Your client
+        </h2>
+        {hasBuyerDetails(order) ? (
+          <dl className="space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <dt className="flex w-24 shrink-0 items-center gap-1.5 text-ink-mute">
+                <User className="h-4 w-4" aria-hidden="true" />
+                Name
+              </dt>
+              <dd className="font-semibold">{order.buyer.name}</dd>
+            </div>
+            <div className="flex items-center gap-2">
+              <dt className="w-24 shrink-0 text-ink-mute">Phone</dt>
+              <dd>
+                <PhoneLink phone={order.buyer.phone} />
+              </dd>
+            </div>
+            <div className="flex items-start gap-2">
+              <dt className="flex w-24 shrink-0 items-center gap-1.5 text-ink-mute">
+                <MapPin className="h-4 w-4" aria-hidden="true" />
+                {order.mode === "delivery" ? "Deliver to" : "Pickup"}
+              </dt>
+              <dd className="min-w-0 break-words font-semibold">
+                {order.mode === "delivery" ? orderLocation(order) || "No location given" : "The buyer will collect at your shop."}
+              </dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="text-sm text-ink-mute">Client details were not saved for this older order.</p>
+        )}
+        <p className="text-xs text-ink-mute">Use these details only for this order. Please do not share them or use them for anything else.</p>
+      </section>
 
       {status === "pending" && (
         <section className={card}>
@@ -279,10 +317,11 @@ export default function SellerOrderDetail() {
       <section className={card}>
         <h2 className="text-lg font-extrabold">Items</h2>
         <ul className="divide-y divide-ink/10 text-sm">
-          {(order.items || []).map((i) => (
-            <li key={i.name} className="flex justify-between py-2">
+          {(order.items || []).map((i, n) => (
+            <li key={`${i.productId || i.name}-${i.size || ""}-${n}`} className="flex justify-between py-2">
               <span>
-                {i.name} &times; {i.qty}
+                {i.name}
+                {i.size && <span className="ml-1.5 rounded-full bg-ink/10 px-2 py-0.5 text-xs font-bold">{formatSize(i.sizeType, i.size)}</span>} &times; {i.qty}
               </span>
               <span className="font-semibold">{formatKES(i.price * i.qty)}</span>
             </li>

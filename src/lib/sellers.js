@@ -11,7 +11,7 @@ const ACCOUNTS_KEY = "vibeyetu_sellers";
 const SHOPS_KEY = "vibeyetu_custom_shops";
 const OWNERS_KEY = "vibeyetu_shop_owners"; // { email: [shopId, ...] }
 
-export const TERMS_VERSION = "2026-10-24"; // bumped when fees, payouts and closing a shop were added to the Terms
+export const TERMS_VERSION = "2026-10-30"; // bumped when sizes and contact details on orders were added to the Terms
 // Pages fire this event after a rename or a new branch so the My Shop header refreshes.
 export const SHOPS_CHANGED = "vibeyetu:shops-changed";
 export const MAX_SHOPS_PER_SELLER = 10; // a guard against abuse; the owner can ask support for more
@@ -272,6 +272,24 @@ export async function registerSeller({ account, details, shop, consent }) {
     return fail(made.message);
   }
   return { ok: true, seller: { email, shopId: made.shop.id } };
+}
+
+// ---- Change a forgotten password ----
+// Called only after the one-time code was accepted (see passwordReset.js). The backend does the same on the server.
+export async function resetSellerPassword(emailRaw, newPassword, confirm) {
+  const email = normalizeEmail(emailRaw);
+  if (demoFor(email)) return { ok: false, message: "This is a demo account, so its password cannot be changed." };
+  if (String(newPassword || "").length < 8) return { ok: false, message: "Your password must have at least 8 characters." };
+  if (newPassword !== confirm) return { ok: false, message: "The two passwords do not match." };
+  const list = accounts();
+  const acc = list.find((a) => a.email === email);
+  if (!acc) return { ok: false, message: "We could not find this account." };
+  const salt = newSalt();
+  const passwordHash = await hashPassword(newPassword, salt);
+  if (!writeJson(ACCOUNTS_KEY, list.map((a) => (a.email === email ? { ...a, salt, passwordHash } : a)))) {
+    return { ok: false, message: "Your browser blocked saving. Allow site data and try again." };
+  }
+  return { ok: true };
 }
 
 // ---- Sign in ----

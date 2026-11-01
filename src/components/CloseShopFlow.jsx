@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { CheckCircle2, Download, TriangleAlert } from "lucide-react";
 import Button from "./Button.jsx";
+import ForgotPasswordPanel from "./ForgotPasswordPanel.jsx";
 import useDialog from "../hooks/useDialog.js";
 import { useOrders } from "../context/OrdersContext.jsx";
 import { useSeller } from "../context/SellerAuthContext.jsx";
@@ -24,7 +25,7 @@ const slug = (s) =>
     .replace(/^-+|-+$/g, "") || "shop";
 
 // Closing a shop takes three steps: why, what happens, and a final check with the password.
-// Open from the Inventory page. `onClose` just dismisses the box (nothing is closed until the last step).
+// Open from the Shop tab. `onClose` just dismisses the box (nothing is closed until the last step).
 export default function CloseShopFlow({ onClose }) {
   const { seller, switchShop, logout } = useSeller();
   const { orders } = useOrders();
@@ -44,6 +45,8 @@ export default function CloseShopFlow({ onClose }) {
   const [fails, setFails] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [resetting, setResetting] = useState(false); // the Forgot password panel is open
+  const [notice, setNotice] = useState(""); // a good-news line, such as "Password changed"
   const [info, setInfo] = useState(null); // what closing will switch off
   const [nextShop, setNextShop] = useState(null); // where to go after closing
   const alive = useRef(true);
@@ -65,7 +68,7 @@ export default function CloseShopFlow({ onClose }) {
   useEffect(() => {
     const node = ref.current;
     if (node) (node.querySelector("[data-autofocus]") || node).focus();
-  }, [step]);
+  }, [step, resetting]);
 
   useEffect(() => {
     let live = true;
@@ -140,7 +143,7 @@ export default function CloseShopFlow({ onClose }) {
         setPassword("");
         return setError(
           used >= MAX_PASSWORD_TRIES
-            ? "Too many wrong passwords. Sign out and sign in again to continue."
+            ? "Too many wrong passwords. Use Forgot your password to reset it, or sign out and sign in again."
             : `That password is not correct. ${MAX_PASSWORD_TRIES - used} ${MAX_PASSWORD_TRIES - used === 1 ? "try" : "tries"} left.`
         );
       }
@@ -304,7 +307,26 @@ export default function CloseShopFlow({ onClose }) {
           </div>
         )}
 
-        {step === 2 && (
+        {step === 2 && resetting && (
+          <ForgotPasswordPanel
+            email={seller.email}
+            shopId={seller.shopId}
+            onCancel={() => {
+              setResetting(false);
+              setError("");
+            }}
+            onDone={() => {
+              // Proving the phone with a code also clears the wrong-password count.
+              setResetting(false);
+              setFails(0);
+              setPassword("");
+              setError("");
+              setNotice("Your password was changed. Enter your new password below to continue.");
+            }}
+          />
+        )}
+
+        {step === 2 && !resetting && (
           <form id="close-form" onSubmit={closeNow} className="space-y-4" noValidate>
             <dl className="space-y-1 rounded-xl bg-ivory px-4 py-3 text-sm">
               <div className="flex gap-2">
@@ -342,6 +364,17 @@ export default function CloseShopFlow({ onClose }) {
                 disabled={locked}
                 className={inputCls}
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setNotice("");
+                  setResetting(true);
+                }}
+                className="text-sm font-semibold text-vibe hover:underline"
+              >
+                Forgot your password?
+              </button>
             </div>
           </form>
         )}
@@ -361,12 +394,20 @@ export default function CloseShopFlow({ onClose }) {
           </div>
         )}
 
-        {error && (
+        {notice && step === 2 && !resetting && (
+          <p role="status" className="flex items-center gap-2 rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-900">
+            <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {notice}
+          </p>
+        )}
+
+        {error && !resetting && (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {error}
           </p>
         )}
 
+        {!(step === 2 && resetting) && (
         <div className="flex flex-wrap justify-end gap-2 border-t border-ink/10 pt-4">
           {step === 3 ? (
             <Button onClick={finish} data-autofocus>
@@ -394,6 +435,7 @@ export default function CloseShopFlow({ onClose }) {
             </>
           )}
         </div>
+        )}
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import ProductCard from "../components/ProductCard.jsx";
 import ShopAvatar from "../components/ShopAvatar.jsx";
 import { getShop } from "../services/api.js";
 import { fulfillmentLabel } from "../lib/format.js";
+import { buyerModes } from "../lib/delivery.js";
 import { formatDistance } from "../lib/geo.js";
 import { useUserLocation } from "../context/LocationContext.jsx";
 
@@ -85,7 +86,7 @@ export default function Shop() {
           </p>
           <p className="text-ink-soft">{shop.description}</p>
           <div className="flex flex-wrap gap-2">
-            {shop.fulfillment.map((m) => (
+            {buyerModes(shop).map((m) => (
               <span key={m} className="rounded-full bg-vibe-light px-3 py-1 text-xs font-bold text-vibe-dark">
                 {fulfillmentLabel(m)}
               </span>

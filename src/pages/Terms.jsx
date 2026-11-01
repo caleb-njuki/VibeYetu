@@ -1,6 +1,6 @@
 import { FEE_LABEL } from "../lib/fees.js";
 
-// DRAFT wording for the fee, payout and closing sections (14 to 16). Have a lawyer review it before launch.
+// DRAFT wording for the fee, payout, sizes, contact and closing sections (14 to 18). Have a lawyer review it before launch.
 const SECTIONS = [
   {
     title: "1. Escrow",
@@ -63,7 +63,15 @@ const SECTIONS = [
     text: "Sellers choose where we send their money: a Till number, a Paybill number with an account number, a Pochi la Biashara phone number or an M-Pesa phone number. You are responsible for entering the details correctly, because money sent to the number you gave us cannot be recalled by VibeYetu. Before any change to your payout details is saved, we send a one-time code (OTP) to the phone you signed up with, and we add a notice to your account so you can spot a change you did not make. Any charge that M-Pesa applies to receiving money is set by Safaricom and is not part of the VibeYetu fee.",
   },
   {
-    title: "16. Closing a shop and deleting products (sellers)",
+    title: "16. Sizes (sellers)",
+    text: "Products such as clothes and shoes may be listed with sizes. A seller sets the stock for each size and is responsible for keeping it right. A buyer chooses a size before adding the product to the cart, and the seller must send the size that was ordered. Stock for that size goes down when the order is dispatched and back up when a returned item is confirmed.",
+  },
+  {
+    title: "17. Contact details on orders",
+    text: "When an order is placed, the shop sees the buyer's name, phone number and, for delivery, the area and street or landmark the buyer entered. The buyer sees the shop's contact phone number on the order page. These details are shown only for that order, so the two sides can deliver, collect and sort out questions. Both sides must use them only for that order, and must not share them, sell them or use them to pressure the other side or to take payment outside VibeYetu.",
+  },
+  {
+    title: "18. Closing a shop and deleting products (sellers)",
     text: "A seller may delete a product at any time. Orders already placed keep the item's name and price. A seller may close a shop from Inventory in My Shop once all open orders are finished. We ask for a reason and your password. A closed shop and its products disappear from VibeYetu at once, and its running ads and offers stop. We keep order records and payout details as the Privacy policy explains, so we can settle anything still owed and answer disputes and legal requests. Only support can reopen a closed shop.",
   },
 ];

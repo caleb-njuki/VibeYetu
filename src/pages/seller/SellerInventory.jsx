@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import Button from "../../components/Button.jsx";
-import CloseShopFlow from "../../components/CloseShopFlow.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import SellerProductForm from "./SellerProductForm.jsx";
 import ProductImage from "../../components/ProductImage.jsx";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { createShopProduct, deleteShopProduct, getCategories, getShopCatalog, updateShopProduct } from "../../services/api.js";
-import { ownedShops } from "../../lib/sellers.js";
 import { isOpenOrder } from "../../lib/shopClosure.js";
 import { formatKES } from "../../lib/format.js";
+import { formatSize, hasSizes, sizeEntries } from "../../lib/sizes.js";
 
 const stockChip = (n) =>
   n === 0 ? "bg-red-100 text-red-800" : n <= 5 ? "bg-amber-100 text-amber-900" : "bg-green-100 text-green-900";
@@ -24,9 +23,7 @@ export default function SellerInventory() {
   const [notice, setNotice] = useState(null); // { tone: "ok" | "error", text }
   const [deleting, setDeleting] = useState(null); // the product waiting for a yes or no
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [closing, setClosing] = useState(false);
 
-  const shopName = ownedShops(seller.email).find((s) => s.id === seller.shopId)?.name || "this shop";
 
   useEffect(() => {
     let live = true;
@@ -166,6 +163,13 @@ export default function SellerInventory() {
                   {p.active === false && <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs font-bold">Hidden</span>}
                 </p>
                 <p className="text-sm text-ink-mute">{formatKES(p.price)}</p>
+                {hasSizes(p) && (
+                  <p className="text-xs text-ink-mute">
+                    {sizeEntries(p.sizeType, p.sizes)
+                      .map(([size, n]) => `${formatSize(p.sizeType, size)}: ${n}`)
+                      .join(" · ")}
+                  </p>
+                )}
               </div>
               <span className={`rounded-full px-3 py-1 text-xs font-bold ${stockChip(p.stock)}`}>
                 {p.stock === 0 ? "Out of stock" : `${p.stock} in stock`}
@@ -201,19 +205,6 @@ export default function SellerInventory() {
         </ul>
       )}
 
-      <section aria-labelledby="close-title" className="space-y-3 rounded-2xl border border-red-200 bg-white p-5">
-        <h2 id="close-title" className="text-lg font-extrabold text-red-800">
-          Close this shop
-        </h2>
-        <p className="text-sm text-ink-soft">
-          Closing removes <strong>{shopName}</strong> and all its products from VibeYetu. We will ask why, check that no orders are
-          waiting, and confirm with your password. Just need a break? Hide your products instead.
-        </p>
-        <Button variant="danger" onClick={() => setClosing(true)}>
-          Close shop
-        </Button>
-      </section>
-
       {deleting && (
         <ConfirmDialog
           title={`Delete "${deleting.name}"?`}
@@ -241,8 +232,6 @@ export default function SellerInventory() {
           )}
         </ConfirmDialog>
       )}
-
-      {closing && <CloseShopFlow onClose={() => setClosing(false)} />}
     </div>
   );
 }

@@ -2,8 +2,11 @@
 // to the backend (fetch("/api/...")). The pages will not need to change.
 import { categories, shops as baseShops, products as baseProducts } from "../data/mock.js";
 import { applyShopProfile } from "../lib/shopProfile.js";
+import { applyDeliveryFee, buyerModes } from "../lib/delivery.js";
 import { applyShopFlags, isClosed, isSuspended } from "../lib/shopFlags.js";
-import { adjustStock, withStock } from "../lib/stock.js";
+import { adjustStock, resetStock, withStock } from "../lib/stock.js";
+import { formatSize, hasSizes, isSizeType, totalStock } from "../lib/sizes.js";
+import { normalizePhone } from "../lib/format.js";
 import { applyCatalog, createProduct, newProductId, removeProduct, updateProduct } from "../lib/catalog.js";
 import { applyOffer, removeProductFromOffers } from "../lib/offers.js";
 import { MAX_LIVE_ADS, adLink, listAds, liveAds, stopAd } from "../lib/ads.js";
@@ -13,7 +16,6 @@ import { soldCounts } from "../lib/sales.js";
 import { withRatings } from "../lib/ratings.js";
 import { customShops } from "../lib/sellers.js";
 
-export const DELIVERY_FEE = 150;
 const DEMO_OTP = "123456"; // Demo only. Real SMS codes arrive with the backend.
 
 const wait = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,7 +27,7 @@ const applyShopRatings = (s) => {
 };
 // Sample shops plus the shops sellers opened. The owner's email stays private, so it is removed here.
 const allShops = () => [...baseShops, ...customShops().map(({ ownerEmail, ...shop }) => shop)];
-const shopList = () => allShops().map(applyShopProfile).map(applyShopFlags).map(applyShopRatings);
+const shopList = () => allShops().map(applyShopProfile).map(applyDeliveryFee).map(applyShopFlags).map(applyShopRatings);
 const catalog = () => applyCatalog(baseProducts);
 const liveProducts = () => catalog().filter((p) => p.active !== false && !isSuspended(p.shopId) && !isClosed(p.shopId));
 
@@ -112,8 +114,12 @@ export async function verifyOtp(phone, code) {
 // ---- Checkout ----
 // Creates one order per shop with its items. The order is saved to My Orders
 // once payment succeeds.
-export async function placeOrders({ items, modes }) {
+// `contact` is who the order is for: { name, phone, area, street }. The shop sees it on this order only.
+export async function placeOrders({ items, modes, contact }) {
   await wait(400);
+  const buyerName = String(contact?.name || "").replace(/\s+/g, " ").trim();
+  const buyerPhone = normalizePhone(contact?.phone || "");
+  if (buyerName.length < 2 || !buyerPhone) throw new Error("Enter your name and a phone number the seller can reach you on.");
   // A shop can be suspended after its items went into a cart. Stop before any payment is taken.
   if (items.some((i) => isSuspended(i.shopId))) {
     throw new Error("A shop in your cart is not taking orders right now. Please remove its items and try again.");
@@ -122,10 +128,26 @@ export async function placeOrders({ items, modes }) {
     throw new Error("A shop in your cart has closed. Please remove its items and try again.");
   }
   // A product can be hidden or deleted after it went into a cart.
-  const forSale = new Set(liveProducts().map((p) => p.id));
+  const forSale = new Map(liveProducts().map((p) => [p.id, withStock(p)]));
   if (items.some((i) => !forSale.has(i.id))) {
     throw new Error("An item in your cart is no longer for sale. Please remove it and try again.");
   }
+  // A product with sizes needs a size that the seller still has in stock, in the amount ordered.
+  items.forEach((i) => {
+    const p = forSale.get(i.id);
+    if (!hasSizes(p)) return;
+    if (!i.size || !(i.size in p.sizes)) {
+      throw new Error(`${i.name} is sold in sizes. Please remove it from your cart and choose a size on its page.`);
+    }
+    if (p.sizes[i.size] < i.qty) {
+      const left = p.sizes[i.size];
+      throw new Error(
+        left === 0
+          ? `${i.name} in ${formatSize(p.sizeType, i.size)} is sold out. Please remove it from your cart.`
+          : `Only ${left} of ${i.name} in ${formatSize(p.sizeType, i.size)} left. Please lower the quantity.`
+      );
+    }
+  });
   const byShop = new Map();
   items.forEach((i) => {
     if (!byShop.has(i.shopId)) {
@@ -133,17 +155,25 @@ export async function placeOrders({ items, modes }) {
     }
     const o = byShop.get(i.shopId);
     o.subtotal += i.price * i.qty;
-    o.items.push({ productId: i.id, name: i.name, qty: i.qty, price: i.price });
+    o.items.push({ productId: i.id, name: i.name, qty: i.qty, price: i.price, size: i.size || "", sizeType: i.size ? i.sizeType : "" });
   });
   const orders = [...byShop.values()].map((o) => {
     const mode = modes[o.shopId] || "pickup";
-    const deliveryFee = mode === "delivery" ? DELIVERY_FEE : 0;
+    // Each shop charges its own delivery fee. A shop that has not set one cannot be asked to deliver.
+    const shop = shopList().find((s) => s.id === o.shopId);
+    if (mode === "delivery" && !buyerModes(shop).includes("delivery")) {
+      throw new Error(`${o.shopName} is not delivering right now. Please choose pickup for that shop.`);
+    }
+    const deliveryFee = mode === "delivery" ? shop.deliveryFee : 0;
     return {
       id: "VY-" + Math.random().toString(36).slice(2, 8).toUpperCase(),
       ...o,
       mode,
       deliveryFee,
       total: o.subtotal + deliveryFee,
+      // The shop needs these to deliver and to reach the buyer. A pickup order has no address.
+      buyer: { name: buyerName, phone: buyerPhone },
+      address: mode === "delivery" ? { area: String(contact?.area || "").trim(), street: String(contact?.street || "").trim() } : null,
     };
   });
   return {
@@ -185,6 +215,19 @@ export async function updateShopProduct(id, changes) {
   const found = catalog().find((p) => p.id === id);
   if (!found) throw new Error("This product no longer exists.");
   const { stock, ...fields } = changes;
+  // The product form always sends `sizes` (an object, or null when the product has no sizes). The numbers the
+  // seller typed replace whatever orders changed before, so the new stock is exactly what was typed.
+  if ("sizes" in fields) {
+    const sized = isSizeType(fields.sizeType) && fields.sizes && Object.keys(fields.sizes).length > 0;
+    resetStock(id);
+    updateProduct(id, {
+      ...fields,
+      sizeType: sized ? fields.sizeType : "none",
+      sizes: sized ? fields.sizes : null,
+      stock: sized ? totalStock(fields.sizes) : Number(stock) || 0,
+    });
+    return true;
+  }
   if (Object.keys(fields).length) updateProduct(id, fields);
   if (typeof stock === "number") adjustStock(id, stock - withStock(found).stock);
   return true;
