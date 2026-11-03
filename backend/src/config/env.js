@@ -10,17 +10,44 @@ import { z } from 'zod';
 const here = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(here, '../../.env'), quiet: true });
 
-const schema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(5000),
-  CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required'),
+const schema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(5000),
+    CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required'),
 
-  DB_HOST: z.string().min(1, 'DB_HOST is required'),
-  DB_PORT: z.coerce.number().int().min(1).max(65535),
-  DB_NAME: z.string().min(1, 'DB_NAME is required'),
-  DB_USER: z.string().min(1, 'DB_USER is required'),
-  DB_PASSWORD: z.string().min(1, 'DB_PASSWORD is required'),
-});
+    DB_HOST: z.string().min(1, 'DB_HOST is required'),
+    DB_PORT: z.coerce.number().int().min(1).max(65535),
+    DB_NAME: z.string().min(1, 'DB_NAME is required'),
+    DB_USER: z.string().min(1, 'DB_USER is required'),
+    DB_PASSWORD: z.string().min(1, 'DB_PASSWORD is required'),
+
+    // Login tokens. Must be long, random and secret.
+    JWT_SECRET: z
+      .string()
+      .min(32, 'JWT_SECRET must be at least 32 characters (see .env.example)')
+      .refine(
+        (v) => !v.startsWith('change_me'),
+        'JWT_SECRET is still the example text. Replace it with your own long random text (see .env.example)'
+      ),
+    JWT_EXPIRES_IN: z
+      .string()
+      .regex(/^\d+[smhd]$/, 'JWT_EXPIRES_IN must look like 7d, 12h or 30m')
+      .default('7d'),
+
+    // Africa's Talking (SMS). Only used when NODE_ENV=production.
+    AT_USERNAME: z.string().min(1, 'AT_USERNAME cannot be empty').default('sandbox'),
+    AT_API_KEY: z.string().optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production' && (!env.AT_API_KEY || env.AT_API_KEY.startsWith('your_'))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['AT_API_KEY'],
+        message: 'AT_API_KEY is required in production',
+      });
+    }
+  });
 
 const parsed = schema.safeParse(process.env);
 
@@ -48,5 +75,13 @@ export const config = {
     database: env.DB_NAME,
     user: env.DB_USER,
     password: env.DB_PASSWORD,
+  },
+  jwt: {
+    secret: env.JWT_SECRET,
+    expiresIn: env.JWT_EXPIRES_IN,
+  },
+  africasTalking: {
+    username: env.AT_USERNAME,
+    apiKey: env.AT_API_KEY,
   },
 };

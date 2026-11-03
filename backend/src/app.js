@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/env.js';
-import healthRoutes from './routes/health.routes.js';
+import apiRoutes from './routes/index.js';
 
 const app = express();
 
@@ -30,7 +30,7 @@ app.use(
 // Read JSON bodies, with a size limit.
 app.use(express.json({ limit: '100kb' }));
 
-// Basic rate limit for the whole API (stricter limits for login/OTP come later).
+// Basic rate limit for the whole API (the login routes add stricter limits of their own).
 app.use(
   '/api',
   rateLimit({
@@ -42,8 +42,8 @@ app.use(
   })
 );
 
-// Routes
-app.use('/api/health', healthRoutes);
+// Routes (the full list is in routes/index.js)
+app.use('/api', apiRoutes);
 
 // Anything else: not found.
 app.use((req, res) => {
