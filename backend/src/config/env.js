@@ -38,6 +38,11 @@ const schema = z
     // Africa's Talking (SMS). Only used when NODE_ENV=production.
     AT_USERNAME: z.string().min(1, 'AT_USERNAME cannot be empty').default('sandbox'),
     AT_API_KEY: z.string().optional(),
+
+    // Cloudinary (photos). Optional: without them the server still runs, but photo uploads say "not set up".
+    CLOUDINARY_CLOUD_NAME: z.string().optional(),
+    CLOUDINARY_API_KEY: z.string().optional(),
+    CLOUDINARY_API_SECRET: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && (!env.AT_API_KEY || env.AT_API_KEY.startsWith('your_'))) {
@@ -62,6 +67,12 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
+// The .env.example placeholders (your_...) count as "not set".
+const real = (v) => (v && !v.startsWith('your_') ? v : undefined);
+const cloudName = real(env.CLOUDINARY_CLOUD_NAME);
+const cloudKey = real(env.CLOUDINARY_API_KEY);
+const cloudSecret = real(env.CLOUDINARY_API_SECRET);
+
 export const config = {
   nodeEnv: env.NODE_ENV,
   isProduction: env.NODE_ENV === 'production',
@@ -83,5 +94,11 @@ export const config = {
   africasTalking: {
     username: env.AT_USERNAME,
     apiKey: env.AT_API_KEY,
+  },
+  cloudinary: {
+    enabled: Boolean(cloudName && cloudKey && cloudSecret),
+    cloudName,
+    apiKey: cloudKey,
+    apiSecret: cloudSecret,
   },
 };

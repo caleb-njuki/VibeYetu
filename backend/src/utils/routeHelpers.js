@@ -12,7 +12,8 @@ export function parseBody(schema, body, fallback = 'Please check the information
   const parsed = schema.safeParse(body ?? {});
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw httpError(400, issue.code === 'invalid_type' ? fallback : issue.message);
+    // Our own messages are shown. zod's built-in English ("Invalid input: ...") is replaced by the fallback.
+    throw httpError(400, issue.message.startsWith('Invalid') ? fallback : issue.message);
   }
   return parsed.data;
 }

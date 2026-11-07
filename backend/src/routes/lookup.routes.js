@@ -1,8 +1,10 @@
-// Public lists the sign-up and shop screens need. No login required.
+// Public lists the sign-up, shop and product screens need. No login required.
 //   GET /api/areas
+//   GET /api/categories
 //   GET /api/shop-names/check?name=Nairobi%20Threads&ignoreShopId=12
 import { Router } from 'express';
 import { listAreas, checkShopName } from '../services/seller.service.js';
+import { listCategories } from '../services/product.service.js';
 import { handle, limiter } from '../utils/routeHelpers.js';
 
 const router = Router();
@@ -11,6 +13,13 @@ router.get(
   '/areas',
   handle(async (req, res) => {
     res.json({ areas: await listAreas() });
+  })
+);
+
+router.get(
+  '/categories',
+  handle(async (req, res) => {
+    res.json({ categories: await listCategories() });
   })
 );
 
