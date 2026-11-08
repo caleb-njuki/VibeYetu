@@ -31,6 +31,8 @@ const PRODUCT_FROM = `
 const LIVE_PRODUCT = 'p.deleted_at IS NULL AND p.active AND s.closed_at IS NULL AND NOT s.suspended';
 
 // Collects the values for a query and builds the distance part (Haversine formula, in kilometres).
+// `distance` and `nearWhere` add their values ONLY when a query actually reads them. PostgreSQL
+// refuses a query that is sent with a value it never uses ("could not determine data type of parameter").
 function startQuery(near) {
   const params = [];
   const add = (value) => {
@@ -39,12 +41,29 @@ function startQuery(near) {
   };
   if (!near) return { params, add, distance: 'NULL::float8', nearWhere: '' };
 
-  const lat = `${add(near.lat)}::float8`;
-  const lng = `${add(near.lng)}::float8`;
-  const distance = `(2 * 6371 * asin(sqrt(LEAST(1,
+  let distance;
+  let nearWhere;
+  return {
+    params,
+    add,
+    get distance() {
+      if (distance === undefined) {
+        const lat = `${add(near.lat)}::float8`;
+        const lng = `${add(near.lng)}::float8`;
+        distance = `(2 * 6371 * asin(sqrt(LEAST(1,
       power(sin(radians(s.lat - ${lat}) / 2), 2)
       + cos(radians(${lat})) * cos(radians(s.lat)) * power(sin(radians(s.lng - ${lng}) / 2), 2)))))`;
-  return { params, add, distance, nearWhere: `AND ${distance} <= ${add(near.radiusKm)}::float8` };
+      }
+      return distance;
+    },
+    get nearWhere() {
+      if (nearWhere === undefined) {
+        const dist = this.distance;
+        nearWhere = `AND ${dist} <= ${add(near.radiusKm)}::float8`;
+      }
+      return nearWhere;
+    },
+  };
 }
 
 // A simple city estimate: 15 minutes to prepare, plus travel time. Same as the frontend.
