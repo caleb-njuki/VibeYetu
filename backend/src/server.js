@@ -2,6 +2,7 @@
 import app from './app.js';
 import { config } from './config/env.js';
 import { pool, checkDb } from './config/db.js';
+import { sweep } from './services/order.service.js';
 
 const server = app.listen(config.port, async () => {
   console.log(`VibeYetu API running on http://localhost:${config.port}`);
@@ -13,6 +14,21 @@ const server = app.listen(config.port, async () => {
       : 'Database: NOT connected (check DB_* settings in backend/.env and that PostgreSQL is running)'
   );
 });
+
+// Every 30 seconds: cancel unpaid checkouts (15 min) and refund orders the seller never answered (1 hour).
+let sweeping = false;
+const sweeper = setInterval(async () => {
+  if (sweeping) return;
+  sweeping = true;
+  try {
+    await sweep();
+  } catch (err) {
+    console.error('Order sweep failed:', err.message);
+  } finally {
+    sweeping = false;
+  }
+}, 30000);
+sweeper.unref();
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
@@ -26,6 +42,7 @@ server.on('error', (err) => {
 // Close everything cleanly when the server is stopped (Ctrl+C).
 async function shutdown(signal) {
   console.log(`\n${signal} received. Shutting down...`);
+  clearInterval(sweeper);
   server.close(async () => {
     await pool.end().catch(() => {});
     process.exit(0);

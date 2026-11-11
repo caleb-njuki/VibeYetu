@@ -216,4 +216,159 @@ await step('Buyer removes the favourite', async () => {
   check(data.products.length === 0, 'the favourite is still in the list');
 });
 
+// ---- Orders and escrow (payment is simulated) ----
+let groupId;
+let orderId;
+let orderCode;
+await step('Buyer checks out (pickup): stock is held and the price comes from the server', async () => {
+  const data = expectStatus(
+    await call('POST', '/checkout', {
+      token: buyerToken,
+      body: { items: [{ productId, qty: 2 }], modes: { [shopId]: 'pickup' }, contact: { name: 'Smoke Buyer', phone } },
+    }),
+    201
+  );
+  groupId = data.checkout.id;
+  orderId = data.checkout.orders[0].id;
+  check(data.checkout.total === 3000, `expected total 3000 but got ${data.checkout.total}`);
+  const list = expectStatus(await call('GET', `/seller/shops/${shopId}/products`, { token: sellerToken }), 200);
+  const stock = list.products.find((p) => p.id === productId).stock;
+  check(stock === 5, `stock should be 5 (7 minus 2 held) but is ${stock}`);
+  return `order ${orderId}`;
+});
+await step('Buyer pays (simulated): the order goes to the seller', async () => {
+  const data = expectStatus(await call('POST', `/checkout/${groupId}/pay`, { token: buyerToken, body: { method: 'card' } }), 200);
+  check(data.orders[0].status === 'pending', `status is ${data.orders[0].status}`);
+  const list = expectStatus(await call('GET', `/seller/shops/${shopId}/orders`, { token: sellerToken }), 200);
+  check(list.orders.some((o) => o.id === orderId), 'the seller does not see the order');
+});
+await step('Seller agrees to fulfil and sees the code', async () => {
+  const data = expectStatus(await call('POST', `/seller/shops/${shopId}/orders/${orderId}/accept`, { token: sellerToken, body: { promise: '3h' } }), 200);
+  check(data.order.status === 'accepted' && /^\d{6}$/.test(data.order.code), 'the order is not accepted or has no code');
+  orderCode = data.order.code;
+});
+await step('A wrong code is refused', async () => {
+  const wrong = orderCode === '111111' ? '222222' : '111111';
+  expectStatus(await call('POST', `/seller/shops/${shopId}/orders/${orderId}/dispatch`, { token: sellerToken, body: { code: wrong } }), 400);
+});
+await step('Seller dispatches with the code', async () => {
+  const data = expectStatus(await call('POST', `/seller/shops/${shopId}/orders/${orderId}/dispatch`, { token: sellerToken, body: { code: orderCode } }), 200);
+  check(data.order.status === 'dispatched', `status is ${data.order.status}`);
+});
+await step('Buyer confirms with the code: the payment is released', async () => {
+  const mine = expectStatus(await call('GET', `/orders/${orderId}`, { token: buyerToken }), 200);
+  check(mine.order.code === orderCode, 'the buyer cannot see the code once the order is dispatched');
+  const data = expectStatus(await call('POST', `/orders/${orderId}/confirm`, { token: buyerToken, body: { code: orderCode } }), 200);
+  check(data.order.status === 'completed', `status is ${data.order.status}`);
+});
+await step('A second confirm is refused (no double release)', async () => {
+  expectStatus(await call('POST', `/orders/${orderId}/confirm`, { token: buyerToken, body: { code: orderCode } }), 409);
+});
+await step('Orders are refused without a token', async () => {
+  expectStatus(await call('GET', `/seller/shops/${shopId}/orders`), 401);
+  expectStatus(await call('GET', '/orders'), 401);
+});
+
+// ---- Ratings and notifications ----
+await step('Buyer rates the product and the shop', async () => {
+  expectStatus(await call('POST', `/orders/${orderId}/rating`, { token: buyerToken, body: { kind: 'product', productId, stars: 4, comment: 'Lovely basket' } }), 201);
+  expectStatus(await call('POST', `/orders/${orderId}/rating`, { token: buyerToken, body: { kind: 'shop', stars: 5 } }), 201);
+});
+await step('Rating the same thing twice is refused', async () => {
+  expectStatus(await call('POST', `/orders/${orderId}/rating`, { token: buyerToken, body: { kind: 'shop', stars: 1 } }), 409);
+});
+await step('The product page now shows the rating and the sold count', async () => {
+  const data = expectStatus(await call('GET', `/products/${productId}?${NEAR_CBD}`), 200);
+  check(data.product.rating === 4 && data.product.ratingCount === 1, `rating is ${data.product.rating} from ${data.product.ratingCount}`);
+  check(data.product.sold === 2, `sold should be 2 but is ${data.product.sold}`);
+  check(data.product.shop.rating === 5 && data.product.shop.reviews === 1, 'the shop rating is wrong');
+});
+await step('Public reviews show stars and comment, no names', async () => {
+  const data = expectStatus(await call('GET', `/products/${productId}/reviews`), 200);
+  check(data.count === 1 && data.reviews[0].comment === 'Lovely basket', 'the review is missing');
+  check(!JSON.stringify(data).includes(phone), 'a phone number leaked into the reviews');
+});
+await step('The home page lists the product as a best seller', async () => {
+  const data = expectStatus(await call('GET', `/home?${NEAR_CBD}`), 200);
+  check(data.bestSellers.some((p) => p.id === productId), 'the product is not in bestSellers');
+});
+await step('Seller bell: the new order and the buyer\'s confirmation', async () => {
+  const data = expectStatus(await call('GET', `/seller/shops/${shopId}/notifications`, { token: sellerToken }), 200);
+  check(data.items.length >= 3, `expected at least 3 notifications but found ${data.items.length}`);
+  check(data.unreadCount === data.items.length, 'they should all be unread');
+  const done = expectStatus(await call('POST', `/seller/shops/${shopId}/notifications/read`, { token: sellerToken, body: { all: true } }), 200);
+  check(done.unreadCount === 0, 'mark all read did not work');
+});
+await step('Buyer bell: seller agreed and dispatched', async () => {
+  const data = expectStatus(await call('GET', '/notifications', { token: buyerToken }), 200);
+  check(data.items.length === 2 && data.unreadCount === 2, `expected 2 unread but found ${data.items.length} (${data.unreadCount} unread)`);
+  const done = expectStatus(await call('POST', '/notifications/read', { token: buyerToken, body: { ids: [data.items[0].id] } }), 200);
+  check(done.unreadCount === 1, 'marking one as read did not work');
+});
+
+// ---- Help assistant ----
+let assistantSource = 'canned';
+await step('Assistant answers a question about refunds', async () => {
+  const data = expectStatus(await call('POST', '/assistant', { body: { message: 'How do refunds work?', lang: 'en' } }), 200);
+  check(typeof data.reply === 'string' && data.reply.length > 20, 'the reply is empty');
+  check(['ai', 'canned'].includes(data.source), `unexpected source ${data.source}`);
+  assistantSource = data.source;
+  return data.source === 'ai' ? 'answered by the AI' : 'answered from built-in answers (no AI key set, which is fine)';
+});
+await step('Assistant answers in Swahili', async () => {
+  const data = expectStatus(await call('POST', '/assistant', { body: { message: 'Escrow ni nini?', lang: 'sw' } }), 200);
+  check(data.reply.length > 20, 'the reply is empty');
+});
+await step('Assistant refuses a PIN or code and does not send it anywhere', async () => {
+  const data = expectStatus(await call('POST', '/assistant', { body: { message: 'my M-Pesa pin is 4821', lang: 'en' } }), 200);
+  check(data.source === 'guard', `expected the guard but got ${data.source}`);
+});
+await step('Assistant works for a logged-in buyer (knows their orders)', async () => {
+  const data = expectStatus(await call('POST', '/assistant', { token: buyerToken, body: { message: 'Where is my order?', lang: 'en' } }), 200);
+  check(data.reply.length > 20, 'the reply is empty');
+});
+await step('An empty question is refused', async () => {
+  expectStatus(await call('POST', '/assistant', { body: { message: '   ' } }), 400);
+});
+
+// ---- Staff tools and suspension ----
+await step('Staff routes are closed without a staff token', async () => {
+  expectStatus(await call('GET', '/admin/overview'), 401);
+  expectStatus(await call('GET', '/admin/overview', { token: sellerToken }), 401); // a seller token is not a staff token
+  expectStatus(await call('POST', '/auth/admin/login', { body: { email: 'nobody@example.com', password: 'wrong-password-123' } }), 401);
+});
+await step('Seller: a shop that is not suspended has no report to write', async () => {
+  const data = expectStatus(await call('GET', `/seller/shops/${shopId}/suspension`, { token: sellerToken }), 200);
+  check(data.suspended === false, 'the shop should not be suspended');
+  expectStatus(await call('POST', `/seller/shops/${shopId}/suspension/report`, { token: sellerToken, body: { reason: 'Something else', details: 'x'.repeat(40), plan: 'y'.repeat(30) } }), 409);
+});
+const adminEmail = process.env.SMOKE_ADMIN_EMAIL;
+const adminPassword = process.env.SMOKE_ADMIN_PASSWORD;
+if (adminEmail && adminPassword) {
+  let adminToken;
+  await step('Staff sign in', async () => {
+    const data = expectStatus(await call('POST', '/auth/admin/login', { body: { email: adminEmail, password: adminPassword } }), 200);
+    adminToken = data.token;
+    check(Boolean(adminToken), 'no token came back');
+  });
+  await step('Staff overview, orders, cases and shops', async () => {
+    const ov = expectStatus(await call('GET', '/admin/overview', { token: adminToken }), 200);
+    check(ov.byStatus && ov.released.total >= 3000, `released total should include our 3000 order but is ${ov.released?.total}`);
+    const orders = expectStatus(await call('GET', `/admin/orders?q=${orderId}`, { token: adminToken }), 200);
+    check(orders.orders.length === 1 && orders.orders[0].status === 'completed', 'our order is not listed as completed');
+    expectStatus(await call('GET', '/admin/cases', { token: adminToken }), 200);
+    const shops = expectStatus(await call('GET', '/admin/shops', { token: adminToken }), 200);
+    const mine = shops.shops.find((x) => x.id === shopId);
+    check(Boolean(mine) && !JSON.stringify(mine).includes('29384756'), 'our shop is missing, or the full ID number is visible');
+  });
+  await step('Staff can mark a shop verified and take it back', async () => {
+    expectStatus(await call('POST', `/admin/shops/${shopId}/verify`, { token: adminToken, body: { verified: true } }), 200);
+    const data = expectStatus(await call('GET', `/shops/${shopId}?${NEAR_CBD}`), 200);
+    check(data.shop.verified === true, 'the shop page does not show the verified mark');
+    expectStatus(await call('POST', `/admin/shops/${shopId}/verify`, { token: adminToken, body: { verified: false } }), 200);
+  });
+} else {
+  console.log('  (skipped the staff sign-in checks: set SMOKE_ADMIN_EMAIL and SMOKE_ADMIN_PASSWORD to run them)');
+}
+
 console.log(`\nALL ${passed} CHECKS PASSED. The backend works from start to finish.`);

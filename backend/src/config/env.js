@@ -43,6 +43,11 @@ const schema = z
     CLOUDINARY_CLOUD_NAME: z.string().optional(),
     CLOUDINARY_API_KEY: z.string().optional(),
     CLOUDINARY_API_SECRET: z.string().optional(),
+
+    // Help assistant (Google Gemini, free key from https://aistudio.google.com). Optional:
+    // without a key the assistant still answers, using the built-in answers.
+    AI_API_KEY: z.string().optional(),
+    AI_MODEL: z.string().min(1).default('gemini-flash-latest'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && (!env.AT_API_KEY || env.AT_API_KEY.startsWith('your_'))) {
@@ -72,6 +77,7 @@ const real = (v) => (v && !v.startsWith('your_') ? v : undefined);
 const cloudName = real(env.CLOUDINARY_CLOUD_NAME);
 const cloudKey = real(env.CLOUDINARY_API_KEY);
 const cloudSecret = real(env.CLOUDINARY_API_SECRET);
+const aiKey = real(env.AI_API_KEY);
 
 export const config = {
   nodeEnv: env.NODE_ENV,
@@ -100,5 +106,10 @@ export const config = {
     cloudName,
     apiKey: cloudKey,
     apiSecret: cloudSecret,
+  },
+  ai: {
+    enabled: Boolean(aiKey),
+    apiKey: aiKey,
+    model: env.AI_MODEL,
   },
 };

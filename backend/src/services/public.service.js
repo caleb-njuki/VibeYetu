@@ -8,12 +8,13 @@ import { toProduct } from './product.service.js';
 const PRODUCT_COLUMNS = `
   p.id, p.shop_id, p.name, p.price, p.stock, p.size_type, p.sizes, p.category_id, c.emoji,
   p.description, p.images, p.active, p.created_at,
-  0::int AS sold,          -- real numbers arrive with orders (Batch 5)
-  0::float8 AS rating,     -- real numbers arrive with ratings (Batch 6)
-  0::int AS rating_count`;
+  (SELECT COALESCE(SUM(i.qty), 0)::int FROM order_items i JOIN orders o ON o.id = i.order_id
+    WHERE i.product_id = p.id AND o.status = 'completed') AS sold,
+  CASE WHEN p.stars_count = 0 THEN 0 ELSE p.stars_sum::float8 / p.stars_count END AS rating,
+  p.stars_count AS rating_count`;
 
 const SHOP_COLUMNS = `
-  s.name AS sh_name, s.area_id AS sh_area_id, a.name AS sh_area, a.town AS sh_town,
+  s.name AS sh_name, s.stars_sum AS sh_stars_sum, s.stars_count AS sh_stars_count, s.area_id AS sh_area_id, a.name AS sh_area, a.town AS sh_town,
   s.lat AS sh_lat, s.lng AS sh_lng,
   to_char(s.opens, 'HH24:MI') AS sh_opens, to_char(s.closes, 'HH24:MI') AS sh_closes,
   s.verified AS sh_verified, EXTRACT(YEAR FROM s.created_at)::int AS sh_since,
@@ -31,8 +32,8 @@ const PRODUCT_FROM = `
 const LIVE_PRODUCT = 'p.deleted_at IS NULL AND p.active AND s.closed_at IS NULL AND NOT s.suspended';
 
 // Collects the values for a query and builds the distance part (Haversine formula, in kilometres).
-// `distance` and `nearWhere` add their values ONLY when a query actually reads them. PostgreSQL
-// refuses a query that is sent with a value it never uses ("could not determine data type of parameter").
+// The radius is added to the values only when `nearWhere` is actually used in the query:
+// the database refuses a query that is given a value it never uses.
 function startQuery(near) {
   const params = [];
   const add = (value) => {
@@ -41,27 +42,19 @@ function startQuery(near) {
   };
   if (!near) return { params, add, distance: 'NULL::float8', nearWhere: '' };
 
-  let distance;
-  let nearWhere;
+  const lat = `${add(near.lat)}::float8`;
+  const lng = `${add(near.lng)}::float8`;
+  const distance = `(2 * 6371 * asin(sqrt(LEAST(1,
+      power(sin(radians(s.lat - ${lat}) / 2), 2)
+      + cos(radians(${lat})) * cos(radians(s.lat)) * power(sin(radians(s.lng - ${lng}) / 2), 2)))))`;
+  let radius = null;
   return {
     params,
     add,
-    get distance() {
-      if (distance === undefined) {
-        const lat = `${add(near.lat)}::float8`;
-        const lng = `${add(near.lng)}::float8`;
-        distance = `(2 * 6371 * asin(sqrt(LEAST(1,
-      power(sin(radians(s.lat - ${lat}) / 2), 2)
-      + cos(radians(${lat})) * cos(radians(s.lat)) * power(sin(radians(s.lng - ${lng}) / 2), 2)))))`;
-      }
-      return distance;
-    },
+    distance,
     get nearWhere() {
-      if (nearWhere === undefined) {
-        const dist = this.distance;
-        nearWhere = `AND ${dist} <= ${add(near.radiusKm)}::float8`;
-      }
-      return nearWhere;
+      radius ??= `${add(near.radiusKm)}::float8`;
+      return `AND ${distance} <= ${radius}`;
     },
   };
 }
@@ -81,8 +74,8 @@ function toShop(row) {
     opens: row.sh_opens,
     closes: row.sh_closes,
     verified: row.sh_verified,
-    rating: 0, // real numbers arrive with ratings (Batch 6)
-    reviews: 0,
+    rating: row.sh_stars_count ? row.sh_stars_sum / row.sh_stars_count : 0,
+    reviews: row.sh_stars_count,
     since: row.sh_since,
     description: row.sh_description,
     fulfillment: row.sh_fulfillment,
@@ -211,7 +204,7 @@ export async function getHome(near = null) {
   const productCtx = startQuery(near);
   const shopCtx = startQuery(near);
 
-  const [count, fresh, shops] = await Promise.all([
+  const [count, fresh, best, shops] = await Promise.all([
     pool.query(
       `SELECT COUNT(*)::int AS n ${PRODUCT_FROM} WHERE ${LIVE_PRODUCT} ${productCtx.nearWhere}`,
       productCtx.params
@@ -223,6 +216,20 @@ export async function getHome(near = null) {
          ${PRODUCT_FROM}
          WHERE ${LIVE_PRODUCT} ${ctx.nearWhere}
          ORDER BY p.created_at DESC, p.id DESC
+         LIMIT 8`,
+        ctx.params
+      );
+    })(),
+    (() => {
+      const ctx = startQuery(near);
+      return pool.query(
+        `SELECT * FROM (
+           SELECT ${PRODUCT_COLUMNS}, ${SHOP_COLUMNS}, ${ctx.distance} AS distance_km
+           ${PRODUCT_FROM}
+           WHERE ${LIVE_PRODUCT} ${ctx.nearWhere}
+         ) best
+         WHERE sold > 0
+         ORDER BY sold DESC, id DESC
          LIMIT 8`,
         ctx.params
       );
@@ -243,7 +250,7 @@ export async function getHome(near = null) {
     total: count.rows[0].n,
     offers: [], // seller offers are not built yet
     newArrivals: fresh.rows.map(toPublicProduct),
-    bestSellers: [], // filled in when orders exist (Batch 5)
+    bestSellers: best.rows.map(toPublicProduct),
     shops: shops.rows.map(toShop),
   };
 }
