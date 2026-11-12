@@ -13,6 +13,7 @@ import { saveProduct, takeFrom, restockOrder } from './stock.service.js';
 import { addEvent, holdPayment, refundOrder, releaseOrder } from './escrow.service.js';
 import { chargeBuyer, PAYMENT_PROVIDER } from './payment.service.js';
 import { evaluateShop } from './strike.service.js';
+import { PRICE_NOW_SQL } from '../utils/offerSql.js';
 
 export const SELLER_REJECT_REASONS = ['Out of stock', 'Item is faulty', 'Cannot deliver in time', 'Other'];
 export const BUYER_REJECT_REASONS = ['Item is faulty', 'Wrong item', 'Not as described', 'Damaged in transit'];
@@ -61,9 +62,10 @@ export async function createCheckout(buyerId, { items, modes = {}, contact }) {
     const ids = [...new Set([...lines.values()].map((l) => l.productId))];
     const found = await c.query(
       `SELECT p.id, p.shop_id, p.name, p.price, p.stock, p.size_type, p.sizes, p.active, p.deleted_at,
-              s.name AS shop_name, s.suspended, s.closed_at, s.fulfillment, s.delivery_fee
+              s.name AS shop_name, s.suspended, s.closed_at, s.fulfillment, s.delivery_fee,
+              ${PRICE_NOW_SQL} AS price_now
        FROM products p JOIN shops s ON s.id = p.shop_id
-       WHERE p.id = ANY($1::bigint[]) ORDER BY p.id FOR UPDATE OF p`,
+       WHERE p.id = ANY($1::bigint[]) ORDER BY p.id FOR UPDATE OF p FOR SHARE OF s`,
       [ids]
     );
     const products = new Map(found.rows.map((p) => [String(p.id), p]));
@@ -95,8 +97,8 @@ export async function createCheckout(buyerId, { items, modes = {}, contact }) {
       const shopKey = String(p.shop_id);
       if (!byShop.has(shopKey)) byShop.set(shopKey, { shopId: p.shop_id, shopName: p.shop_name, shop: p, subtotal: 0, items: [] });
       const o = byShop.get(shopKey);
-      o.subtotal += p.price * l.qty;
-      o.items.push({ productId: p.id, name: p.name, price: p.price, qty: l.qty, size: l.size, sizeType: l.size ? p.size_type : '' });
+      o.subtotal += p.price_now * l.qty; // the price today, with any live offer
+      o.items.push({ productId: p.id, name: p.name, price: p.price_now, qty: l.qty, size: l.size, sizeType: l.size ? p.size_type : '' });
     }
 
     const groupId = newId('G-');

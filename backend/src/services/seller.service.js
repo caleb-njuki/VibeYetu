@@ -4,6 +4,8 @@ import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { normalizePhone } from '../utils/phone.js';
 import { checkShopNameRules } from '../utils/shopName.js';
+import { encryptText } from '../utils/crypto.js';
+import { deleteImages, imageUrl, isOwnImage } from './cloudinary.service.js';
 
 export const TERMS_VERSION = '2026-10-30';
 export const MAX_SHOPS_PER_SELLER = 10;
@@ -19,7 +21,7 @@ const SHOP_SELECT = `
   SELECT s.id::text AS id, s.name, s.area_id AS "areaId", a.name AS area, a.town,
          s.lat, s.lng, to_char(s.opens, 'HH24:MI') AS opens, to_char(s.closes, 'HH24:MI') AS closes,
          s.fulfillment, s.delivery_fee AS "deliveryFee", s.description, s.verified, s.suspended,
-         s.contact_phone AS "contactPhone", EXTRACT(YEAR FROM s.created_at)::int AS since
+         s.contact_phone AS "contactPhone", s.photo, EXTRACT(YEAR FROM s.created_at)::int AS since
   FROM shops s
   JOIN areas a ON a.id = s.area_id`;
 
@@ -95,12 +97,15 @@ export function validateRegistration({ account, details, shop, consent }) {
 }
 
 // ---- Reading ----
+// The shop photo is stored as a photo id; the API sends { id, url, thumb } (or null), like product photos.
+const withPhoto = (row) => (row ? { ...row, photo: row.photo ? { id: row.photo, url: imageUrl(row.photo, 800), thumb: imageUrl(row.photo, 200) } : null } : row);
+
 export async function getOwnedShop(sellerId, shopId, db = pool) {
   const { rows } = await db.query(`${SHOP_SELECT} WHERE s.id = $1 AND s.seller_id = $2 AND s.closed_at IS NULL`, [
     shopId,
     sellerId,
   ]);
-  return rows[0] || null;
+  return withPhoto(rows[0]) || null;
 }
 
 // The shops the seller can work on. A closed shop is not one of them.
@@ -108,7 +113,7 @@ export async function listOwnShops(sellerId) {
   const { rows } = await pool.query(`${SHOP_SELECT} WHERE s.seller_id = $1 AND s.closed_at IS NULL ORDER BY s.id`, [
     sellerId,
   ]);
-  return rows;
+  return rows.map(withPhoto);
 }
 
 export async function getSeller(sellerId) {
@@ -159,8 +164,8 @@ export async function registerSeller(input) {
         String(account.email).trim().toLowerCase(),
         passwordHash,
         String(details.fullName).replace(/\s+/g, ' ').trim(),
-        String(details.idNumber).trim(),
-        String(details.kraPin || '').trim().toUpperCase() || null,
+        encryptText(String(details.idNumber).trim()), // locked in the database (see utils/crypto.js)
+        encryptText(String(details.kraPin || '').trim().toUpperCase() || null),
         phone,
         details.businessType,
         registered ? String(details.businessName).trim() : null,
@@ -262,11 +267,12 @@ export async function createShop(sellerId, { name, areaId, description }) {
 
 // ---- Edit a shop. Only the fields that are sent change. ----
 export async function updateShop(sellerId, shopId, changes) {
+  let replacedPhoto = null;
   await inTransaction(async (client) => {
     const found = await client.query(
       `SELECT name, name_key, area_id, lat, lng, description,
               to_char(opens, 'HH24:MI') AS opens, to_char(closes, 'HH24:MI') AS closes,
-              fulfillment, delivery_fee, contact_phone
+              fulfillment, delivery_fee, contact_phone, photo
        FROM shops
        WHERE id = $1 AND seller_id = $2 AND closed_at IS NULL
        FOR UPDATE`,
@@ -287,6 +293,7 @@ export async function updateShop(sellerId, shopId, changes) {
       fulfillment: cur.fulfillment,
       deliveryFee: cur.delivery_fee,
       phone: cur.contact_phone,
+      photo: cur.photo,
     };
 
     if (changes.name !== undefined) {
@@ -312,6 +319,11 @@ export async function updateShop(sellerId, shopId, changes) {
       next.fulfillment = modes;
     }
     if (changes.deliveryFee !== undefined) next.deliveryFee = changes.deliveryFee;
+    if (changes.photo !== undefined) {
+      // A photo id from this shop's own folder (made by the upload signature route), or null to remove the photo.
+      if (changes.photo !== null && !isOwnImage(shopId, String(changes.photo))) throw httpError(400, 'The photo is not valid. Please upload it again.');
+      next.photo = changes.photo === null ? null : String(changes.photo);
+    }
     if (changes.phone !== undefined) {
       const raw = String(changes.phone).trim();
       if (raw === '') next.phone = null;
@@ -324,7 +336,7 @@ export async function updateShop(sellerId, shopId, changes) {
     await client.query(
       `UPDATE shops
        SET name = $2, name_key = $3, area_id = $4, lat = $5, lng = $6, description = $7,
-           opens = $8, closes = $9, fulfillment = $10, delivery_fee = $11, contact_phone = $12
+           opens = $8, closes = $9, fulfillment = $10, delivery_fee = $11, contact_phone = $12, photo = $13
        WHERE id = $1`,
       [
         shopId,
@@ -339,9 +351,12 @@ export async function updateShop(sellerId, shopId, changes) {
         next.fulfillment,
         next.deliveryFee,
         next.phone,
+        next.photo,
       ]
     );
+    if (cur.photo && cur.photo !== next.photo) replacedPhoto = cur.photo;
   });
+  if (replacedPhoto) await deleteImages([replacedPhoto]); // the old photo is no longer used
 
   return getOwnedShop(sellerId, shopId);
 }

@@ -3,6 +3,8 @@ import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { cleanSizes } from '../utils/sizes.js';
 import { deleteImages, imageUrl, isOwnImage } from './cloudinary.service.js';
+import { stopAdsForProduct } from './ad.service.js';
+import { removeProductFromOffers } from './offer.service.js';
 
 const MAX_PHOTOS = 4;
 
@@ -215,5 +217,7 @@ export async function deleteProduct(shopId, productId) {
     [productId, shopId]
   );
   if (!rows[0]) throw httpError(404, 'This product no longer exists.');
+  await stopAdsForProduct(productId); // ads that pointed at this product stop
+  await removeProductFromOffers(productId); // and it leaves every offer
   deleteImages(rows[0].images);
 }

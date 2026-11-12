@@ -3,6 +3,7 @@
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { toProduct } from './product.service.js';
+import { DISCOUNT_SQL, PRICE_NOW_SQL } from '../utils/offerSql.js';
 
 // ---- Pieces of SQL used by every query below ----
 const PRODUCT_COLUMNS = `
@@ -11,7 +12,8 @@ const PRODUCT_COLUMNS = `
   (SELECT COALESCE(SUM(i.qty), 0)::int FROM order_items i JOIN orders o ON o.id = i.order_id
     WHERE i.product_id = p.id AND o.status = 'completed') AS sold,
   CASE WHEN p.stars_count = 0 THEN 0 ELSE p.stars_sum::float8 / p.stars_count END AS rating,
-  p.stars_count AS rating_count`;
+  p.stars_count AS rating_count,
+  ${DISCOUNT_SQL} AS discount_percent, ${PRICE_NOW_SQL} AS price_now`;
 
 const SHOP_COLUMNS = `
   s.name AS sh_name, s.stars_sum AS sh_stars_sum, s.stars_count AS sh_stars_count, s.area_id AS sh_area_id, a.name AS sh_area, a.town AS sh_town,
@@ -89,8 +91,10 @@ function toShop(row) {
   return shop;
 }
 
+// A live offer lowers `price` and keeps the normal price in `originalPrice` (the frontend crosses it out).
 const toPublicProduct = (row) => ({
   ...toProduct(row),
+  ...(row.discount_percent ? { price: row.price_now, originalPrice: row.price, discountPercent: row.discount_percent } : {}),
   sold: row.sold,
   rating: row.rating,
   ratingCount: row.rating_count,
@@ -118,8 +122,8 @@ export async function searchProducts({ q = '', category = '', sort = 'relevance'
 
   const byDistance = `${ctx.distance} ASC NULLS LAST, p.created_at DESC, p.id DESC`;
   const orders = {
-    'price-asc': 'p.price ASC, p.id ASC',
-    'price-desc': 'p.price DESC, p.id ASC',
+    'price-asc': `${PRICE_NOW_SQL} ASC, p.id ASC`,
+    'price-desc': `${PRICE_NOW_SQL} DESC, p.id ASC`,
     rating: `rating DESC, ${byDistance}`,
     relevance: byDistance,
   };
@@ -204,7 +208,7 @@ export async function getHome(near = null) {
   const productCtx = startQuery(near);
   const shopCtx = startQuery(near);
 
-  const [count, fresh, best, shops] = await Promise.all([
+  const [count, fresh, best, deals, shops] = await Promise.all([
     pool.query(
       `SELECT COUNT(*)::int AS n ${PRODUCT_FROM} WHERE ${LIVE_PRODUCT} ${productCtx.nearWhere}`,
       productCtx.params
@@ -234,6 +238,20 @@ export async function getHome(near = null) {
         ctx.params
       );
     })(),
+    (() => {
+      const ctx = startQuery(near);
+      return pool.query(
+        `SELECT * FROM (
+           SELECT ${PRODUCT_COLUMNS}, ${SHOP_COLUMNS}, ${ctx.distance} AS distance_km
+           ${PRODUCT_FROM}
+           WHERE ${LIVE_PRODUCT} ${ctx.nearWhere}
+         ) d
+         WHERE discount_percent IS NOT NULL
+         ORDER BY discount_percent DESC, id DESC
+         LIMIT 8`,
+        ctx.params
+      );
+    })(),
     pool.query(
       `SELECT s.id AS shop_id, ${SHOP_COLUMNS}, ${shopCtx.distance} AS distance_km
        FROM shops s
@@ -248,7 +266,7 @@ export async function getHome(near = null) {
 
   return {
     total: count.rows[0].n,
-    offers: [], // seller offers are not built yet
+    offers: deals.rows.map(toPublicProduct),
     newArrivals: fresh.rows.map(toPublicProduct),
     bestSellers: best.rows.map(toPublicProduct),
     shops: shops.rows.map(toShop),

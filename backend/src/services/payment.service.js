@@ -6,3 +6,14 @@ export async function chargeBuyer({ method, phone, amount, groupId }) {
   void method; void phone; void amount; void groupId;
   return { ok: true, provider: PAYMENT_PROVIDER };
 }
+
+// Sellers pay for ads, and are refunded when an ad cannot run. Simulated like the buyer payment above.
+export async function chargeAdvertiser({ amount, shopId }) {
+  void amount; void shopId;
+  return { ok: true, provider: PAYMENT_PROVIDER };
+}
+
+export async function refundAdvertiser({ amount, shopId }) {
+  void amount; void shopId;
+  return { ok: true, provider: PAYMENT_PROVIDER };
+}

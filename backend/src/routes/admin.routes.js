@@ -7,12 +7,18 @@
 //   GET  /api/admin/shops
 //   POST /api/admin/shops/:shopId/verify           { verified: true|false }
 //   POST /api/admin/shops/:shopId/suspend
+//   POST /api/admin/shops/:shopId/reopen           put back a shop its owner closed
+//   GET  /api/admin/ads                            every ad, with its state and buyer reports
+//   POST /api/admin/ads/:adId/activate             put an ad that needs attention live
+//   POST /api/admin/ads/:adId/refund               close an ad that could not run and refund the seller
+//   POST /api/admin/ads/:adId/stop                 take an ad down without a refund
 //   POST /api/admin/shops/:shopId/review           { action: "more_info", note } or { action: "reinstate", override? }
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { orderIdParam } from '../middleware/shopAccess.js';
-import { decideCase, listCases, listOrders, listShops, overview, reviewSuspension, setVerified, suspendShop } from '../services/admin.service.js';
+import { decideCase, listCases, listOrders, listShops, overview, reopenShop, reviewSuspension, setVerified, suspendShop } from '../services/admin.service.js';
+import { adminActivate, adminListAds, adminRefund, adminStop } from '../services/ad.service.js';
 import { parsePaging } from '../utils/near.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
 
@@ -44,9 +50,15 @@ router.post('/shops/:shopId/verify', handle(async (req, res) => {
   const { verified } = parseBody(verifySchema, req.body);
   res.json(await setVerified(req.admin.id, req.params.shopId, verified));
 }));
+router.post('/shops/:shopId/reopen', handle(async (req, res) => res.json(await reopenShop(req.admin.id, req.params.shopId))));
 router.post('/shops/:shopId/suspend', handle(async (req, res) => res.json(await suspendShop(req.admin.id, req.params.shopId))));
 router.post('/shops/:shopId/review', handle(async (req, res) => {
   res.json(await reviewSuspension(req.admin.id, req.params.shopId, parseBody(reviewSchema, req.body, 'Choose an action.')));
 }));
+
+router.get('/ads', handle(async (req, res) => res.json(await adminListAds())));
+router.post('/ads/:adId/activate', handle(async (req, res) => res.json(await adminActivate(req.admin.id, req.params.adId))));
+router.post('/ads/:adId/refund', handle(async (req, res) => res.json(await adminRefund(req.admin.id, req.params.adId))));
+router.post('/ads/:adId/stop', handle(async (req, res) => res.json(await adminStop(req.admin.id, req.params.adId))));
 
 export default router;

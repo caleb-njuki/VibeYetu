@@ -6,8 +6,10 @@ import { withTransaction } from '../utils/transaction.js';
 import { ACCEPT_WINDOW_SECONDS, WINDOW_SECONDS, formatKES } from '../utils/orderRules.js';
 import { addEvent, refundOrder, releaseOrder } from './escrow.service.js';
 import { shapeOrders } from './order.service.js';
+import { decryptText } from '../utils/crypto.js';
 import { evaluateShop } from './strike.service.js';
 import { addShopNotice } from './notification.service.js';
+import { MAX_SHOPS_PER_SELLER } from './seller.service.js';
 import { currentReport } from './suspension.service.js';
 
 const BCRYPT_COST = 12;
@@ -141,7 +143,7 @@ const maskId = (id) => (id ? '•'.repeat(Math.max(0, String(id).length - 3)) + 
 
 export async function listShops() {
   const { rows } = await pool.query(
-    `SELECT s.id, s.name, a.town, s.verified, s.suspended, s.closed_at, s.suspend_kind, s.suspended_at, s.suspend_order_ids,
+    `SELECT s.id, s.name, a.town, s.verified, s.suspended, s.closed_at, s.close_reason, s.close_details, s.suspend_kind, s.suspended_at, s.suspend_order_ids,
             (SELECT count(*)::int FROM orders o WHERE o.shop_id = s.id AND o.status NOT IN (${HIDDEN})) AS order_count,
             se.id AS seller_id, se.full_name, se.email, se.phone, se.id_number, se.kra_pin,
             se.business_type, se.business_name, se.business_reg_no, se.terms_version, se.consented_at
@@ -160,10 +162,12 @@ export async function listShops() {
       suspended: s.suspended,
       closed: Boolean(s.closed_at),
       closedAt: ms(s.closed_at),
+      closeReason: s.close_reason || '',
+      closeDetails: s.close_details || '',
       orderCount: s.order_count,
       suspension: s.suspended ? { kind: s.suspend_kind, at: ms(s.suspended_at), orderIds: s.suspend_order_ids, report: reports.get(String(s.id)) } : null,
       seller: {
-        fullName: s.full_name, email: s.email, phone: s.phone, idMasked: maskId(s.id_number), kraPin: s.kra_pin || '',
+        fullName: s.full_name, email: s.email, phone: s.phone, idMasked: maskId(decryptText(s.id_number)), kraPin: decryptText(s.kra_pin) || '',
         businessType: s.business_type, businessName: s.business_name || '', businessRegNo: s.business_reg_no || '',
         termsVersion: s.terms_version, consentedAt: ms(s.consented_at),
         otherShops: rows.filter((x) => x.seller_id === s.seller_id && x.id !== s.id).map((x) => x.name),
@@ -185,6 +189,19 @@ export const setVerified = (adminId, shopId, verified) =>
     await c.query('UPDATE shops SET verified = $2 WHERE id = $1', [shopId, verified]);
     await audit(c, adminId, verified ? 'verify' : 'unverify', 'shop', shopId);
     return { ok: true, verified };
+  });
+
+// Puts back a shop its owner closed, for example when the owner asks. Its ads and offers stay removed.
+export const reopenShop = (adminId, shopId) =>
+  withTransaction(async (c) => {
+    const shop = await lockShop(c, shopId);
+    if (!shop.closed_at) throw httpError(409, 'This shop is not closed.');
+    const owner = (await c.query('SELECT seller_id FROM shops WHERE id = $1', [shopId])).rows[0].seller_id;
+    const open = await c.query('SELECT count(*)::int AS n FROM shops WHERE seller_id = $1 AND closed_at IS NULL', [owner]);
+    if (open.rows[0].n >= MAX_SHOPS_PER_SELLER) throw httpError(409, `The owner already has ${MAX_SHOPS_PER_SELLER} open shops.`);
+    await c.query('UPDATE shops SET closed_at = NULL, reopened_at = now() WHERE id = $1', [shopId]);
+    await audit(c, adminId, 'reopen', 'shop', shopId);
+    return { ok: true };
   });
 
 export const suspendShop = (adminId, shopId) =>

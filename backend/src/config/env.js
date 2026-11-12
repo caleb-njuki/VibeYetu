@@ -35,6 +35,13 @@ const schema = z
       .regex(/^\d+[smhd]$/, 'JWT_EXPIRES_IN must look like 7d, 12h or 30m')
       .default('7d'),
 
+    // Key that locks private seller details (national ID, KRA PIN) in the database. 64 hex characters.
+    // Make one with:  node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+    // Keep a safe copy: without it those details can never be read again.
+    DATA_ENCRYPTION_KEY: z
+      .string('DATA_ENCRYPTION_KEY is required (see .env.example)')
+      .regex(/^[0-9a-fA-F]{64}$/, 'DATA_ENCRYPTION_KEY must be exactly 64 hex characters (see .env.example)'),
+
     // Africa's Talking (SMS). Only used when NODE_ENV=production.
     AT_USERNAME: z.string().min(1, 'AT_USERNAME cannot be empty').default('sandbox'),
     AT_API_KEY: z.string().optional(),
@@ -93,6 +100,7 @@ export const config = {
     user: env.DB_USER,
     password: env.DB_PASSWORD,
   },
+  dataKey: Buffer.from(env.DATA_ENCRYPTION_KEY, 'hex'),
   jwt: {
     secret: env.JWT_SECRET,
     expiresIn: env.JWT_EXPIRES_IN,

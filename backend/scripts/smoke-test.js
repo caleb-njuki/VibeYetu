@@ -331,6 +331,73 @@ await step('An empty question is refused', async () => {
   expectStatus(await call('POST', '/assistant', { body: { message: '   ' } }), 400);
 });
 
+// ---- Offers and closing ----
+await step('Seller: a bad offer is refused, a good one lowers the price buyers see, deleting it puts the price back', async () => {
+  const day = 24 * 3600 * 1000;
+  const good = { name: 'Smoke sale', percent: 20, productIds: 'all', startsAt: Date.now() - 1000, endsAt: Date.now() + day };
+  expectStatus(await call('POST', `/seller/shops/${shopId}/offers`, { token: sellerToken, body: { ...good, percent: 99 } }), 400);
+  const made = expectStatus(await call('POST', `/seller/shops/${shopId}/offers`, { token: sellerToken, body: good }), 201);
+  check(made.offer.state === 'live', `the offer should be live but is "${made.offer.state}"`);
+  const now = expectStatus(await call('GET', `/products/${productId}?${NEAR_CBD}`), 200);
+  check(now.product.price === 1200 && now.product.originalPrice === 1500 && now.product.discountPercent === 20, `expected 1200 (was 1500, 20% off) but got ${JSON.stringify([now.product.price, now.product.originalPrice, now.product.discountPercent])}`);
+  const home = expectStatus(await call('GET', `/home?${NEAR_CBD}`), 200);
+  check(home.offers.some((p) => p.id === productId), 'the discounted product is not in the home offers');
+  expectStatus(await call('DELETE', `/seller/shops/${shopId}/offers/${made.offer.id}`, { token: sellerToken }), 200);
+  const back = expectStatus(await call('GET', `/products/${productId}?${NEAR_CBD}`), 200);
+  check(back.product.price === 1500 && back.product.originalPrice === undefined, 'the price did not go back to 1500');
+});
+await step('Seller: closing the shop needs the right password (the shop is NOT closed by this test)', async () => {
+  const info = expectStatus(await call('GET', `/seller/shops/${shopId}/closure`, { token: sellerToken }), 200);
+  check(typeof info.canClose === 'boolean' && typeof info.products === 'number', 'the closing summary has the wrong shape');
+  expectStatus(await call('POST', `/seller/shops/${shopId}/close`, { token: sellerToken, body: { reason: 'Not enough sales', password: 'definitely-wrong-1' } }), 401);
+  expectStatus(await call('POST', `/seller/shops/${shopId}/close`, { token: sellerToken, body: { reason: 'Boredom', password: 'definitely-wrong-1' } }), 400);
+});
+
+// ---- Payout method, shop photo ----
+await step('Seller: a payout method cannot be saved without a code from SMS (the code is printed in the server terminal)', async () => {
+  const mine = { method: 'till', till: '5123456' };
+  const empty = expectStatus(await call('GET', `/seller/shops/${shopId}/payout`, { token: sellerToken }), 200);
+  check(empty.payout === null, 'a new shop should have no payout method yet');
+  expectStatus(await call('POST', `/seller/shops/${shopId}/payout/code`, { token: sellerToken, body: { method: 'till', till: '12' } }), 400);
+  const sent = expectStatus(await call('POST', `/seller/shops/${shopId}/payout/code`, { token: sellerToken, body: mine }), 200);
+  check(/^0\d•• ••• \d{3}$/.test(sent.phone), `the masked phone looks wrong: ${sent.phone}`);
+  expectStatus(await call('PUT', `/seller/shops/${shopId}/payout`, { token: sellerToken, body: mine }), 410); // not verified yet
+  expectStatus(await call('POST', `/seller/shops/${shopId}/payout/verify`, { token: sellerToken, body: { code: '000000' } }), 400);
+});
+await step('Seller: a shop photo from another shop is refused', async () => {
+  expectStatus(await call('PATCH', `/seller/shops/${shopId}`, { token: sellerToken, body: { photo: 'vibeyetu/shops/99999999/abc' } }), 400);
+});
+
+// ---- Ads ----
+let adId;
+await step('Seller: a bad ad is refused (headline too short, colour too light)', async () => {
+  const good = { headline: 'Smoke test sale', subtext: 'Fresh stock this week', headlineColor: '#17181c', subtextColor: '#4b5563', target: 'shop', days: 3 };
+  expectStatus(await call('POST', `/seller/shops/${shopId}/ads`, { body: good }), 401);
+  expectStatus(await call('POST', `/seller/shops/${shopId}/ads`, { token: sellerToken, body: { ...good, headline: 'Hi' } }), 400);
+  expectStatus(await call('POST', `/seller/shops/${shopId}/ads`, { token: sellerToken, body: { ...good, headlineColor: '#ffffff' } }), 400);
+});
+await step('Seller buys an ad (simulated payment): the price comes from the server and it goes live', async () => {
+  const data = expectStatus(await call('POST', `/seller/shops/${shopId}/ads`, { token: sellerToken, body: { headline: 'Smoke test sale', subtext: 'Fresh stock this week', headlineColor: '#17181c', subtextColor: '#4b5563', target: 'shop', days: 3, total: 1 } }), 201);
+  adId = data.ad.id;
+  check(data.ad.total === 60, `3 days should cost 60 but the ad says ${data.ad.total}`);
+  check(data.ad.state === 'live', `the ad should be live but is "${data.ad.state}": ${data.ad.issue}`);
+  return adId;
+});
+await step('Buyers near the shop see the ad on the home slideshow, and not in Mombasa', async () => {
+  const near = expectStatus(await call('GET', `/ads?${NEAR_CBD}`), 200);
+  const ad = near.ads.find((a) => a.id === adId);
+  check(Boolean(ad), 'the ad is not in the slideshow');
+  check(ad.to === `/shop/${shopId}` && !('total' in ad), 'the ad link is wrong or a private field is showing');
+  const far = expectStatus(await call('GET', `/ads?${NEAR_MOMBASA}`), 200);
+  check(!far.ads.some((a) => a.id === adId), 'a Nairobi ad showed up in Mombasa');
+});
+await step('Buyer reports an ad once; a second report is refused', async () => {
+  expectStatus(await call('POST', `/ads/${adId}/report`, { body: { reason: 'Spam' } }), 401);
+  expectStatus(await call('POST', `/ads/${adId}/report`, { token: buyerToken, body: { reason: 'Rude' } }), 400);
+  expectStatus(await call('POST', `/ads/${adId}/report`, { token: buyerToken, body: { reason: 'Spam' } }), 200);
+  expectStatus(await call('POST', `/ads/${adId}/report`, { token: buyerToken, body: { reason: 'Spam' } }), 409);
+});
+
 // ---- Staff tools and suspension ----
 await step('Staff routes are closed without a staff token', async () => {
   expectStatus(await call('GET', '/admin/overview'), 401);
@@ -366,6 +433,14 @@ if (adminEmail && adminPassword) {
     const data = expectStatus(await call('GET', `/shops/${shopId}?${NEAR_CBD}`), 200);
     check(data.shop.verified === true, 'the shop page does not show the verified mark');
     expectStatus(await call('POST', `/admin/shops/${shopId}/verify`, { token: adminToken, body: { verified: false } }), 200);
+  });
+  await step('Staff see the ads list and can take an ad down', async () => {
+    const list = expectStatus(await call('GET', '/admin/ads', { token: adminToken }), 200);
+    const mine = list.ads.find((a) => a.id === adId);
+    check(Boolean(mine) && mine.reports.length === 1, 'our ad is missing or its report is not listed');
+    expectStatus(await call('POST', `/admin/ads/${adId}/stop`, { token: adminToken }), 200);
+    const after = expectStatus(await call('GET', `/ads?${NEAR_CBD}`), 200);
+    check(!after.ads.some((a) => a.id === adId), 'the stopped ad is still in the slideshow');
   });
 } else {
   console.log('  (skipped the staff sign-in checks: set SMOKE_ADMIN_EMAIL and SMOKE_ADMIN_PASSWORD to run them)');

@@ -35,6 +35,7 @@ const updateSchema = z.object({
     .nullable()
     .optional(),
   phone: z.string().optional(),
+  photo: z.string().min(1).max(200).nullable().optional(), // a photo id from the upload signature route; null removes it
 });
 
 router.get(
