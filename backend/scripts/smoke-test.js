@@ -238,7 +238,11 @@ await step('Buyer checks out (pickup): stock is held and the price comes from th
 });
 await step('Buyer pays (simulated): the order goes to the seller', async () => {
   const data = expectStatus(await call('POST', `/checkout/${groupId}/pay`, { token: buyerToken, body: { method: 'card' } }), 200);
+  check(data.status !== 'pending', 'The server is in real M-Pesa mode (PAYMENTS_MODE=daraja), so this test cannot pay by itself. Set PAYMENTS_MODE=simulated in .env for the smoke test, or pay from the app.');
   check(data.orders[0].status === 'pending', `status is ${data.orders[0].status}`);
+  const status = expectStatus(await call('GET', `/checkout/${groupId}/status`, { token: buyerToken }), 200);
+  check(status.status === 'paid' && status.orders.length === 1, `the status check says "${status.status}" but should say paid`);
+  expectStatus(await call('GET', `/checkout/${groupId}/status`), 401);
   const list = expectStatus(await call('GET', `/seller/shops/${shopId}/orders`, { token: sellerToken }), 200);
   check(list.orders.some((o) => o.id === orderId), 'the seller does not see the order');
 });

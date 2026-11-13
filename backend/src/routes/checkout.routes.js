@@ -1,11 +1,18 @@
 // A buyer checks out and pays. Needs the buyer's token.
 //   POST /api/checkout                 body: { items:[{productId,qty,size?}], modes:{shopId:"delivery"|"pickup"}, contact:{name,phone,area?,street?} }
 //                                      -> holds the stock and returns the checkout (one order per shop)
-//   POST /api/checkout/:groupId/pay    body: { method:"mpesa"|"card", phone? }   (payment is simulated for now)
+//   POST /api/checkout/:groupId/pay    body: { method:"mpesa"|"card", phone? }
+//        simulated mode: pays at once   -> { ok, status: "paid", groupId, total, orders }
+//        real M-Pesa mode: the buyer gets a PIN prompt on their phone -> { ok, status: "pending", paymentId, message }
+//        (card is not available in real mode yet: 400)
+//   GET  /api/checkout/:groupId/status the app asks this every 3 seconds while status is "pending"
+//        -> { status: "unpaid"|"pending"|"paid"|"failed"|"expired", message, orders? (when paid) }
+//        "failed": the buyer was not charged, they can tap Pay again. "expired": start a new checkout.
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireBuyer } from '../middleware/auth.js';
-import { createCheckout, payCheckout } from '../services/order.service.js';
+import { createCheckout } from '../services/order.service.js';
+import { checkoutStatus, payForCheckout } from '../services/collection.service.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
 import { httpError } from '../utils/httpError.js';
 
@@ -53,7 +60,15 @@ router.post(
   handle(async (req, res) => {
     if (!/^G-[A-Z0-9]{6}$/.test(req.params.groupId)) throw httpError(404, 'Checkout not found.');
     const body = parseBody(paySchema, req.body);
-    res.json(await payCheckout(req.buyer.id, req.params.groupId, body));
+    res.json(await payForCheckout(req.buyer.id, req.params.groupId, body));
+  })
+);
+
+router.get(
+  '/:groupId/status',
+  handle(async (req, res) => {
+    if (!/^G-[A-Z0-9]{6}$/.test(req.params.groupId)) throw httpError(404, 'Checkout not found.');
+    res.json(await checkoutStatus(req.buyer.id, req.params.groupId));
   })
 );
 

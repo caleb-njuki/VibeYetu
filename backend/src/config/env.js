@@ -42,6 +42,21 @@ const schema = z
       .string('DATA_ENCRYPTION_KEY is required (see .env.example)')
       .regex(/^[0-9a-fA-F]{64}$/, 'DATA_ENCRYPTION_KEY must be exactly 64 hex characters (see .env.example)'),
 
+    // Payments. "simulated" = no real money moves (development). "daraja" = real M-Pesa (sandbox or live).
+    PAYMENTS_MODE: z.enum(['simulated', 'daraja']).default('simulated'),
+    DARAJA_ENV: z.enum(['sandbox', 'production']).default('sandbox'),
+    DARAJA_CONSUMER_KEY: z.string().optional(),
+    DARAJA_CONSUMER_SECRET: z.string().optional(),
+    DARAJA_SHORTCODE: z.string().optional(), // sandbox: 174379
+    DARAJA_PASSKEY: z.string().optional(),
+    // CustomerPayBillOnline for a Paybill, CustomerBuyGoodsOnline for a Till.
+    DARAJA_TRANSACTION_TYPE: z.enum(['CustomerPayBillOnline', 'CustomerBuyGoodsOnline']).default('CustomerPayBillOnline'),
+    DARAJA_PARTY_B: z.string().optional(), // the Till number for Buy Goods. Leave empty to use the shortcode.
+    // The public https address Safaricom calls with payment results (for example your ngrok address).
+    DARAJA_CALLBACK_BASE_URL: z.string().optional(),
+    // A long random secret that is part of the callback address, so only Safaricom (who is told the address) can call it.
+    DARAJA_CALLBACK_SECRET: z.string().optional(),
+
     // Africa's Talking (SMS). Only used when NODE_ENV=production.
     AT_USERNAME: z.string().min(1, 'AT_USERNAME cannot be empty').default('sandbox'),
     AT_API_KEY: z.string().optional(),
@@ -57,6 +72,21 @@ const schema = z
     AI_MODEL: z.string().min(1).default('gemini-flash-latest'),
   })
   .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production' && env.PAYMENTS_MODE !== 'daraja') {
+      ctx.addIssue({ code: 'custom', path: ['PAYMENTS_MODE'], message: 'PAYMENTS_MODE must be daraja in production (simulated payments move no real money)' });
+    }
+    if (env.PAYMENTS_MODE === 'daraja') {
+      const need = (key, ok, message) => {
+        if (!ok) ctx.addIssue({ code: 'custom', path: [key], message });
+      };
+      const set = (v) => Boolean(v && !v.startsWith('your_'));
+      need('DARAJA_CONSUMER_KEY', set(env.DARAJA_CONSUMER_KEY), 'DARAJA_CONSUMER_KEY is required when PAYMENTS_MODE=daraja');
+      need('DARAJA_CONSUMER_SECRET', set(env.DARAJA_CONSUMER_SECRET), 'DARAJA_CONSUMER_SECRET is required when PAYMENTS_MODE=daraja');
+      need('DARAJA_SHORTCODE', /^\d{5,7}$/.test(env.DARAJA_SHORTCODE || ''), 'DARAJA_SHORTCODE must be 5 to 7 digits (sandbox: 174379)');
+      need('DARAJA_PASSKEY', set(env.DARAJA_PASSKEY), 'DARAJA_PASSKEY is required when PAYMENTS_MODE=daraja');
+      need('DARAJA_CALLBACK_BASE_URL', /^https:\/\/[^\s/]+/.test(env.DARAJA_CALLBACK_BASE_URL || ''), 'DARAJA_CALLBACK_BASE_URL must be a public https address (for example from ngrok)');
+      need('DARAJA_CALLBACK_SECRET', /^[A-Za-z0-9_-]{24,}$/.test(env.DARAJA_CALLBACK_SECRET || ''), 'DARAJA_CALLBACK_SECRET must be at least 24 letters or numbers (see .env.example)');
+    }
     if (env.NODE_ENV === 'production' && (!env.AT_API_KEY || env.AT_API_KEY.startsWith('your_'))) {
       ctx.addIssue({
         code: 'custom',
@@ -99,6 +129,22 @@ export const config = {
     database: env.DB_NAME,
     user: env.DB_USER,
     password: env.DB_PASSWORD,
+  },
+  payments: {
+    mode: env.PAYMENTS_MODE,
+    daraja: {
+      baseUrl: env.DARAJA_ENV === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke',
+      consumerKey: env.DARAJA_CONSUMER_KEY,
+      consumerSecret: env.DARAJA_CONSUMER_SECRET,
+      shortcode: env.DARAJA_SHORTCODE,
+      passkey: env.DARAJA_PASSKEY,
+      transactionType: env.DARAJA_TRANSACTION_TYPE,
+      partyB: env.DARAJA_PARTY_B || env.DARAJA_SHORTCODE,
+      callbackSecret: env.DARAJA_CALLBACK_SECRET,
+      callbackUrl: env.DARAJA_CALLBACK_BASE_URL
+        ? `${env.DARAJA_CALLBACK_BASE_URL.replace(/\/+$/, '')}/hooks/mpesa/${env.DARAJA_CALLBACK_SECRET}`
+        : undefined,
+    },
   },
   dataKey: Buffer.from(env.DATA_ENCRYPTION_KEY, 'hex'),
   jwt: {

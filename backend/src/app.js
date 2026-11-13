@@ -6,6 +6,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/env.js';
 import apiRoutes from './routes/index.js';
+import mpesaCallbackRoutes from './routes/mpesaCallback.routes.js';
 
 const app = express();
 
@@ -29,6 +30,9 @@ app.use(
 
 // Read JSON bodies, with a size limit.
 app.use(express.json({ limit: '100kb' }));
+
+// Where M-Pesa reports payment results. Before the rate limit below, so Safaricom is never blocked.
+app.use('/hooks', mpesaCallbackRoutes);
 
 // Basic rate limit for the whole API (the login routes add stricter limits of their own).
 app.use(

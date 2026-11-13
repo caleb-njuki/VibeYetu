@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../middleware/adminAuth.js';
 import { orderIdParam } from '../middleware/shopAccess.js';
 import { decideCase, listCases, listOrders, listShops, overview, reopenShop, reviewSuspension, setVerified, suspendShop } from '../services/admin.service.js';
+import { listPaymentProblems } from '../services/collection.service.js';
 import { adminActivate, adminListAds, adminRefund, adminStop } from '../services/ad.service.js';
 import { parsePaging } from '../utils/near.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
@@ -56,6 +57,8 @@ router.post('/shops/:shopId/review', handle(async (req, res) => {
   res.json(await reviewSuspension(req.admin.id, req.params.shopId, parseBody(reviewSchema, req.body, 'Choose an action.')));
 }));
 
+// Money that arrived but could not be used (to refund), amounts that did not match, and stuck payment prompts.
+router.get('/payments/problems', handle(async (req, res) => res.json(await listPaymentProblems())));
 router.get('/ads', handle(async (req, res) => res.json(await adminListAds())));
 router.post('/ads/:adId/activate', handle(async (req, res) => res.json(await adminActivate(req.admin.id, req.params.adId))));
 router.post('/ads/:adId/refund', handle(async (req, res) => res.json(await adminRefund(req.admin.id, req.params.adId))));

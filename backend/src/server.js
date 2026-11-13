@@ -3,6 +3,7 @@ import app from './app.js';
 import { config } from './config/env.js';
 import { pool, checkDb } from './config/db.js';
 import { sweep } from './services/order.service.js';
+import { reconcileOpenPayments } from './services/collection.service.js';
 
 const server = app.listen(config.port, async () => {
   console.log(`VibeYetu API running on http://localhost:${config.port}`);
@@ -15,13 +16,15 @@ const server = app.listen(config.port, async () => {
   );
 });
 
-// Every 30 seconds: cancel unpaid checkouts (15 min) and refund orders the seller never answered (1 hour).
+// Every 30 seconds: cancel unpaid checkouts (15 min), refund orders the seller never answered (1 hour),
+// and ask M-Pesa about payments whose result never arrived.
 let sweeping = false;
 const sweeper = setInterval(async () => {
   if (sweeping) return;
   sweeping = true;
   try {
     await sweep();
+    await reconcileOpenPayments(); // M-Pesa payments whose result never reached us
   } catch (err) {
     console.error('Order sweep failed:', err.message);
   } finally {

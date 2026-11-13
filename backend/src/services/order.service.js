@@ -148,13 +148,29 @@ export async function createCheckout(buyerId, { items, modes = {}, contact }) {
 }
 
 // Cancels an unpaid checkout and puts its items back. The caller holds the lock on the group row.
-async function expireGroup(c, groupId) {
+export async function expireGroup(c, groupId) {
   const orders = (await c.query('SELECT id FROM orders WHERE group_id = $1 ORDER BY id FOR UPDATE', [groupId])).rows;
   for (const o of orders) {
     await restockOrder(c, o.id);
     await c.query(`UPDATE orders SET status = 'expired', updated_at = now() WHERE id = $1`, [o.id]);
   }
   await c.query(`UPDATE checkout_groups SET status = 'expired' WHERE id = $1`, [groupId]);
+}
+
+// Money for a checkout has arrived: the orders start and the money is held in escrow.
+// Used by the simulated payment and by the real M-Pesa confirmation. `c` is a transaction that already holds the group's lock.
+export async function settleGroupPaid(c, g, { method, phone, provider }) {
+  await c.query(
+    `UPDATE checkout_groups SET status = 'paid', payment_method = $2, payment_phone = $3, payment_provider = $4, paid_at = now() WHERE id = $1`,
+    [g.id, method, phone, provider]
+  );
+  const orders = (await c.query(`SELECT * FROM orders WHERE group_id = $1 ORDER BY id FOR UPDATE`, [g.id])).rows;
+  for (const o of orders) {
+    await c.query(`UPDATE orders SET status = 'pending', paid_at = now(), updated_at = now() WHERE id = $1`, [o.id]);
+    await holdPayment(c, o);
+    await addEvent(c, o.id, 'Payment received. Your money is held in escrow.', `New order ${o.id} for ${formatKES(o.total)}. Agree to fulfil it.`, 'seller');
+  }
+  return orders.map((o) => o.id);
 }
 
 export async function payCheckout(buyerId, groupId, { method, phone }) {
@@ -182,17 +198,8 @@ export async function payCheckout(buyerId, groupId, { method, phone }) {
     const charge = await chargeBuyer({ method, phone: payPhone, amount: g.total, groupId: g.id });
     if (!charge.ok) throw httpError(402, 'The payment did not go through. You have not been charged. Please try again.');
 
-    await c.query(
-      `UPDATE checkout_groups SET status = 'paid', payment_method = $2, payment_phone = $3, paid_at = now() WHERE id = $1`,
-      [g.id, method, payPhone]
-    );
-    const orders = (await c.query(`SELECT * FROM orders WHERE group_id = $1 ORDER BY id FOR UPDATE`, [g.id])).rows;
-    for (const o of orders) {
-      await c.query(`UPDATE orders SET status = 'pending', paid_at = now(), updated_at = now() WHERE id = $1`, [o.id]);
-      await holdPayment(c, o);
-      await addEvent(c, o.id, 'Payment received. Your money is held in escrow.', `New order ${o.id} for ${formatKES(o.total)}. Agree to fulfil it.`, 'seller');
-    }
-    return { group: g, orderIds: orders.map((o) => o.id) };
+    const orderIds = await settleGroupPaid(c, g, { method, phone: payPhone, provider: PAYMENT_PROVIDER });
+    return { group: g, orderIds };
   });
 
   if (result.expired) throw httpError(409, 'This checkout expired because it was not paid in time. Please start again.');
@@ -264,7 +271,7 @@ export async function shapeOrders(rows, role) {
 const VISIBLE = `o.status <> 'awaiting_payment' AND o.status <> 'expired'`;
 const serverTime = () => Date.now();
 
-async function getBuyerOrdersByIds(buyerId, ids) {
+export async function getBuyerOrdersByIds(buyerId, ids) {
   const { rows } = await pool.query(`SELECT o.* FROM orders o WHERE o.buyer_id = $1 AND o.id = ANY($2::text[]) ORDER BY o.paid_at DESC, o.id`, [buyerId, ids]);
   return shapeOrders(rows, 'buyer');
 }
@@ -425,7 +432,9 @@ export async function sweep() {
 
   // 1. Unpaid checkouts older than 15 minutes: cancel and put the items back.
   const groups = await pool.query(
-    `SELECT id FROM checkout_groups WHERE status = 'awaiting_payment' AND created_at <= now() - make_interval(secs => $1) LIMIT 100`,
+    `SELECT id FROM checkout_groups g WHERE status = 'awaiting_payment' AND created_at <= now() - make_interval(secs => $1)
+       AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.group_id = g.id AND p.status IN ('starting', 'pending') AND p.created_at > now() - interval '10 minutes')
+     LIMIT 100`,
     [UNPAID_EXPIRY_SECONDS]
   );
   for (const { id } of groups.rows) {
