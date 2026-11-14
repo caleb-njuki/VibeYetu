@@ -3,13 +3,18 @@
 //   POST /api/seller/shops/:shopId/ads
 //        body: { headline (5-40), subtext? (max 90), image? (a photo id from the upload signature route), darken?,
 //                headlineColor, subtextColor ("#rrggbb"), target: "shop"|"product", productId?, days: 1|3|7|14 }
-//        The price is worked out here (KES 20 a day). The payment is simulated for now.
+//        + phone ("0712345678"): the M-Pesa number to pay from. Required when PAYMENTS_MODE=daraja.
+//        The price is worked out here (KES 20 a day).
+//        Simulated mode: answers 201 { ad, message } (already paid).
+//        Real M-Pesa: answers 201 { adId, status: "pending", message } and the phone gets the PIN prompt.
+//   GET  /api/seller/shops/:shopId/ads/:adId/payment   -> { status: "pending"|"paid"|"failed", message, ad? }  (poll every 3 seconds)
 //   POST /api/seller/shops/:shopId/ads/:adId/stop
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireSeller } from '../middleware/sellerAuth.js';
 import { requireOwnShop } from '../middleware/shopAccess.js';
 import { createAd, listShopAds, stopShopAd } from '../services/ad.service.js';
+import { adPaymentStatus } from '../services/collection.service.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
 
 const router = Router({ mergeParams: true });
@@ -25,12 +30,14 @@ const schema = z.object({
   target: z.enum(['shop', 'product'], 'Choose where the ad should lead.'),
   productId: z.union([z.string(), z.number()]).transform(String).optional(),
   days: z.number('Choose how many days the ad runs.').int('Choose how many days the ad runs.'),
+  phone: z.string().max(20).optional(), // the M-Pesa number to pay from (required when payments are real)
 });
 
 router.get('/ads', handle(async (req, res) => res.json(await listShopAds(req.shop.id))));
 router.post('/ads', limiter(20, 'Too many ads. Please wait a few minutes.'), handle(async (req, res) => {
   res.status(201).json(await createAd(req.shop.id, parseBody(schema, req.body)));
 }));
+router.get('/ads/:adId/payment', handle(async (req, res) => res.json(await adPaymentStatus(req.shop.id, req.params.adId))));
 router.post('/ads/:adId/stop', handle(async (req, res) => res.json(await stopShopAd(req.shop.id, req.params.adId))));
 
 export default router;

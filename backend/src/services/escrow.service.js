@@ -2,6 +2,7 @@
 // Every function here must be called inside a transaction that already holds the lock on the order row.
 import { formatKES, platformFee, refundAmount } from '../utils/orderRules.js';
 import { restockOrder } from './stock.service.js';
+import { queuePayout } from './payoutQueue.service.js';
 
 export async function addEvent(client, orderId, buyerText, sellerText, notify = null) {
   await client.query('INSERT INTO order_events (order_id, buyer_text, seller_text, notify) VALUES ($1, $2, $3, $4)', [
@@ -30,7 +31,9 @@ export async function refundOrder(client, order, { unanswered = false, extraEven
   const amount = unanswered ? order.total : refundAmount(order);
   const remainder = order.total - amount;
   await ledger(client, order.id, 'refund_out', amount, unanswered ? 'Seller did not answer' : 'Refund to buyer');
+  await queuePayout(client, order, 'buyer_refund', amount); // the money really goes back to the buyer's phone
   await ledger(client, order.id, 'seller_out', remainder, 'Delivery fee kept by the seller');
+  await queuePayout(client, order, 'seller_payout', remainder);
   await client.query(
     `UPDATE orders SET status = 'refunded', refund_amount = $2, unanswered = $3, updated_at = now() WHERE id = $1`,
     [order.id, amount, unanswered]
@@ -65,6 +68,7 @@ export async function releaseOrder(client, order) {
   const fee = platformFee(order.subtotal, order.fee_percent);
   await ledger(client, order.id, 'seller_out', order.total - fee, 'Payout to seller');
   await ledger(client, order.id, 'fee_out', fee, `Service fee ${order.fee_percent}%`);
+  await queuePayout(client, order, 'seller_payout', order.total - fee);
   await client.query(`UPDATE orders SET status = 'completed', completed_at = now(), updated_at = now() WHERE id = $1`, [
     order.id,
   ]);

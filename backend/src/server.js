@@ -4,6 +4,7 @@ import { config } from './config/env.js';
 import { pool, checkDb } from './config/db.js';
 import { sweep } from './services/order.service.js';
 import { reconcileOpenPayments } from './services/collection.service.js';
+import { processPayouts } from './services/payoutQueue.service.js';
 
 const server = app.listen(config.port, async () => {
   console.log(`VibeYetu API running on http://localhost:${config.port}`);
@@ -25,6 +26,7 @@ const sweeper = setInterval(async () => {
   try {
     await sweep();
     await reconcileOpenPayments(); // M-Pesa payments whose result never reached us
+    await processPayouts(); // send queued seller payouts and buyer refunds to M-Pesa
   } catch (err) {
     console.error('Order sweep failed:', err.message);
   } finally {

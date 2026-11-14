@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import Button from "./Button.jsx";
-import { DEMO_ENABLED } from "../lib/sellers.js";
 import { FEE_LABEL, netAfterFee } from "../lib/fees.js";
 import { formatKES, localPhone } from "../lib/format.js";
 import { formatWhen } from "../lib/orders.js";
 import {
   OTP_LENGTH,
-  PAYOUT_DEMO_CODE,
   PAYOUT_METHODS,
   describePayout,
   getPayout,
@@ -289,7 +287,6 @@ export default function PayoutMethods({ email, shopId, onChange }) {
               data-autofocus
             />
           </Field>
-          {DEMO_ENABLED && <p className="text-xs text-ink-mute">Demo mode: no SMS is sent. The code is {PAYOUT_DEMO_CODE}.</p>}
 
           {notice && (
             <p role="status" className="text-sm font-semibold text-green-800">

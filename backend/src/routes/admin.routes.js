@@ -19,6 +19,7 @@ import { requireAdmin } from '../middleware/adminAuth.js';
 import { orderIdParam } from '../middleware/shopAccess.js';
 import { decideCase, listCases, listOrders, listShops, overview, reopenShop, reviewSuspension, setVerified, suspendShop } from '../services/admin.service.js';
 import { listPaymentProblems } from '../services/collection.service.js';
+import { listPayoutProblems, markPayoutPaid, retryPayout } from '../services/payoutQueue.service.js';
 import { adminActivate, adminListAds, adminRefund, adminStop } from '../services/ad.service.js';
 import { parsePaging } from '../utils/near.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
@@ -58,6 +59,10 @@ router.post('/shops/:shopId/review', handle(async (req, res) => {
 }));
 
 // Money that arrived but could not be used (to refund), amounts that did not match, and stuck payment prompts.
+// Money going OUT that needs a person, and what staff can do about it.
+router.get('/payouts/problems', handle(async (req, res) => res.json(await listPayoutProblems())));
+router.post('/payouts/:payoutId/retry', handle(async (req, res) => res.json(await retryPayout(req.admin.id, req.params.payoutId))));
+router.post('/payouts/:payoutId/mark-paid', handle(async (req, res) => res.json(await markPayoutPaid(req.admin.id, req.params.payoutId, req.body?.receipt))));
 router.get('/payments/problems', handle(async (req, res) => res.json(await listPaymentProblems())));
 router.get('/ads', handle(async (req, res) => res.json(await adminListAds())));
 router.post('/ads/:adId/activate', handle(async (req, res) => res.json(await adminActivate(req.admin.id, req.params.adId))));

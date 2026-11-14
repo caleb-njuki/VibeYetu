@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../../components/Button.jsx";
+import PinPicker from "../../components/PinPicker.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { AREAS, TOWNS } from "../../lib/areas.js";
@@ -16,6 +17,7 @@ export default function SellerBranchNew() {
   // Start from the current shop's name, so the seller only adds the town or branch.
   const [name, setName] = useState(current ? `${current.name} ` : "");
   const [areaId, setAreaId] = useState("");
+  const [pin, setPin] = useState(null);
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
 
@@ -26,7 +28,8 @@ export default function SellerBranchNew() {
     const check = checkShopName(name);
     if (!check.ok) return setError(check.message);
     if (!areaId) return setError("Choose the area of this branch.");
-    const result = createShop(seller.email, { name, areaId, description });
+    if (!pin) return setError("Place the pin on the map to show exactly where this branch is.");
+    const result = createShop(seller.email, { name, areaId, description, lat: pin.lat, lng: pin.lng });
     if (!result.ok) return setError(result.message);
     switchShop(result.shop.id);
     window.dispatchEvent(new Event(SHOPS_CHANGED));
@@ -66,9 +69,12 @@ export default function SellerBranchNew() {
           <ShopNameField id="b-name" label="Branch shop name" value={name} onChange={setName} areaId={areaId} />
           <div className="space-y-1.5">
             <label htmlFor="b-area" className="text-sm font-semibold">
-              Where is this branch?
+              Which area is this branch in?
             </label>
-            <select id="b-area" value={areaId} onChange={(e) => setAreaId(e.target.value)} className={inputCls}>
+            <select id="b-area" value={areaId} onChange={(e) => {
+                setAreaId(e.target.value);
+                setPin(null);
+              }} className={inputCls}>
               <option value="">Choose the area</option>
               {TOWNS.map((town) => (
                 <optgroup key={town} label={town}>
@@ -81,6 +87,7 @@ export default function SellerBranchNew() {
               ))}
             </select>
           </div>
+          <PinPicker value={pin} areaId={areaId} onChange={setPin} label="Place a pin on this branch" />
           <div className="space-y-1.5">
             <label htmlFor="b-desc" className="text-sm font-semibold">
               About this branch (optional)

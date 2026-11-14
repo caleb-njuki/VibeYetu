@@ -68,7 +68,7 @@ export default function Search() {
         <h1 className="text-2xl font-extrabold sm:text-3xl">{q ? `Results for "${q}"` : "Shops near you"}</h1>
         <p className="flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
           <MapPin className="h-4 w-4 text-vibe" aria-hidden="true" />
-          Within {radiusKm} km of {location.label}.
+          Within {radiusKm} km of {location.source === "gps" ? "you" : "Nairobi CBD"}.
           <button type="button" onClick={openPicker} className="font-semibold text-vibe hover:underline">
             Change
           </button>
@@ -116,7 +116,7 @@ export default function Search() {
         </div>
       ) : results.length === 0 ? (
         <div className="space-y-3 rounded-2xl bg-white p-8 text-center shadow-card">
-          <p className="text-ink-mute">No products found near you. Try another search, a bigger distance or a different area.</p>
+          <p className="text-ink-mute">No products found near you. Try another search, or a bigger distance.</p>
           <button type="button" onClick={openPicker} className="font-semibold text-vibe hover:underline">
             Change location or distance
           </button>

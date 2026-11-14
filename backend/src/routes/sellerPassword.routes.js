@@ -6,7 +6,7 @@
 //   POST /api/seller/account/password/reset     body: { password, confirm }. Only works right after a code was accepted, and once.
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireSeller } from '../middleware/sellerAuth.js';
+import { requireSeller, signSellerToken } from '../middleware/sellerAuth.js';
 import { requestPasswordCode, resetPassword, verifyPasswordCode } from '../services/password.service.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
 
@@ -23,7 +23,9 @@ router.post('/password/verify', limiter(30, 'Too many tries. Please wait a few m
   res.json(await verifyPasswordCode(req.seller.id, parseBody(codeSchema, req.body).code));
 }));
 router.post('/password/reset', limiter(10, 'Too many tries. Please wait a few minutes.'), handle(async (req, res) => {
-  res.json(await resetPassword(req.seller.id, parseBody(resetSchema, req.body)));
+  await resetPassword(req.seller.id, parseBody(resetSchema, req.body));
+  // Every older login ended. This session continues with a new token.
+  res.json({ ok: true, token: await signSellerToken(req.seller) });
 }));
 
 export default router;

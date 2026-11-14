@@ -2,6 +2,7 @@
 // If something is missing or wrong, the server stops with a clear message
 // (it names the setting, never prints its value).
 import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -57,6 +58,18 @@ const schema = z
     // A long random secret that is part of the callback address, so only Safaricom (who is told the address) can call it.
     DARAJA_CALLBACK_SECRET: z.string().optional(),
 
+    // Paying sellers and refunding buyers. off = payouts are recorded and wait for staff (no money is sent).
+    PAYOUTS_MODE: z.enum(['off', 'daraja']).default('off'),
+    DARAJA_INITIATOR_NAME: z.string().optional(),
+    DARAJA_INITIATOR_PASSWORD: z.string().optional(),
+    // The Safaricom certificate file used to lock the initiator password (sandbox: from the Daraja portal). A path on this computer.
+    DARAJA_CERT_PATH: z.string().optional(),
+    // Easier option: paste the Security Credential that the Daraja portal generates from the initiator password.
+    // When it is set, the password and the certificate file are not needed.
+    DARAJA_SECURITY_CREDENTIAL: z.string().optional(),
+    // The shortcode money is paid OUT from. In the sandbox B2C this is the test shortcode shown on the portal. Empty = the STK shortcode.
+    DARAJA_PAYOUT_SHORTCODE: z.string().optional(),
+
     // Africa's Talking (SMS). Only used when NODE_ENV=production.
     AT_USERNAME: z.string().min(1, 'AT_USERNAME cannot be empty').default('sandbox'),
     AT_API_KEY: z.string().optional(),
@@ -72,8 +85,24 @@ const schema = z
     AI_MODEL: z.string().min(1).default('gemini-flash-latest'),
   })
   .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production') {
+      const bad = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean).filter((o) => !/^https:\/\//.test(o) || /localhost|127\.0\.0\.1/.test(o) || o === '*');
+      if (bad.length) ctx.addIssue({ code: 'custom', path: ['CORS_ORIGIN'], message: `CORS_ORIGIN must list only your real https website address in production (not: ${bad.join(', ')})` });
+    }
     if (env.NODE_ENV === 'production' && env.PAYMENTS_MODE !== 'daraja') {
       ctx.addIssue({ code: 'custom', path: ['PAYMENTS_MODE'], message: 'PAYMENTS_MODE must be daraja in production (simulated payments move no real money)' });
+    }
+    if (env.NODE_ENV === 'production' && env.PAYOUTS_MODE !== 'daraja') {
+      ctx.addIssue({ code: 'custom', path: ['PAYOUTS_MODE'], message: 'PAYOUTS_MODE must be daraja in production (otherwise sellers are never paid)' });
+    }
+    if (env.PAYOUTS_MODE === 'daraja') {
+      const need = (key, ok, message) => {
+        if (!ok) ctx.addIssue({ code: 'custom', path: [key], message });
+      };
+      need('PAYMENTS_MODE', env.PAYMENTS_MODE === 'daraja', 'PAYMENTS_MODE must be daraja when PAYOUTS_MODE=daraja');
+      need('DARAJA_INITIATOR_NAME', Boolean(env.DARAJA_INITIATOR_NAME), 'DARAJA_INITIATOR_NAME is required when PAYOUTS_MODE=daraja');
+      const lockedByCert = Boolean(env.DARAJA_INITIATOR_PASSWORD) && Boolean(env.DARAJA_CERT_PATH) && existsSync(env.DARAJA_CERT_PATH);
+      need('DARAJA_SECURITY_CREDENTIAL', Boolean(env.DARAJA_SECURITY_CREDENTIAL) || lockedByCert, 'Set DARAJA_SECURITY_CREDENTIAL (generated on the Daraja portal), or set both DARAJA_INITIATOR_PASSWORD and a DARAJA_CERT_PATH that points to the certificate file');
     }
     if (env.PAYMENTS_MODE === 'daraja') {
       const need = (key, ok, message) => {
@@ -130,6 +159,14 @@ export const config = {
     user: env.DB_USER,
     password: env.DB_PASSWORD,
   },
+  payouts: {
+    mode: env.PAYOUTS_MODE,
+    initiatorName: env.DARAJA_INITIATOR_NAME,
+    initiatorPassword: env.DARAJA_INITIATOR_PASSWORD,
+    certPath: env.DARAJA_CERT_PATH,
+    securityCredential: env.DARAJA_SECURITY_CREDENTIAL,
+    shortcode: env.DARAJA_PAYOUT_SHORTCODE || env.DARAJA_SHORTCODE,
+  },
   payments: {
     mode: env.PAYMENTS_MODE,
     daraja: {
@@ -141,6 +178,7 @@ export const config = {
       transactionType: env.DARAJA_TRANSACTION_TYPE,
       partyB: env.DARAJA_PARTY_B || env.DARAJA_SHORTCODE,
       callbackSecret: env.DARAJA_CALLBACK_SECRET,
+      baseCallbackUrl: env.DARAJA_CALLBACK_BASE_URL ? `${env.DARAJA_CALLBACK_BASE_URL.replace(/\/+$/, '')}/hooks/mpesa` : undefined,
       callbackUrl: env.DARAJA_CALLBACK_BASE_URL
         ? `${env.DARAJA_CALLBACK_BASE_URL.replace(/\/+$/, '')}/hooks/mpesa/${env.DARAJA_CALLBACK_SECRET}`
         : undefined,

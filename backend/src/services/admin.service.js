@@ -1,4 +1,5 @@
 // What VibeYetu staff do: sign in, see orders and shops, decide cases, verify and suspend shops.
+import { clearFailures, lockedError, recordFailure } from '../utils/lockout.js';
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
@@ -39,10 +40,16 @@ export async function createAdmin({ email, fullName, password }) {
 
 export async function loginAdmin(email, password) {
   const mail = String(email || '').trim().toLowerCase();
-  const { rows } = await pool.query('SELECT id, email, full_name, password_hash FROM admins WHERE email = $1', [mail]);
+  const { rows } = await pool.query('SELECT id, email, full_name, password_hash, failed_logins, locked_until FROM admins WHERE email = $1', [mail]);
   dummyHash ??= await bcrypt.hash('not-a-real-password', BCRYPT_COST);
   const valid = await bcrypt.compare(String(password || ''), rows[0] ? rows[0].password_hash : dummyHash);
-  if (!rows[0] || !valid) throw httpError(401, 'Wrong email or password.');
+  const locked = lockedError(rows[0]);
+  if (locked) throw locked;
+  if (!rows[0] || !valid) {
+    if (rows[0]) throw (await recordFailure('admins', rows[0].id)) || httpError(401, 'Wrong email or password.');
+    throw httpError(401, 'Wrong email or password.');
+  }
+  await clearFailures('admins', rows[0].id, rows[0]);
   return { id: rows[0].id, email: rows[0].email, fullName: rows[0].full_name };
 }
 

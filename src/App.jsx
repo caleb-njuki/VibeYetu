@@ -22,6 +22,7 @@ import OrderDetail from "./pages/OrderDetail.jsx";
 import Privacy from "./pages/Privacy.jsx";
 import SellerLogin from "./pages/seller/SellerLogin.jsx";
 import SellerRegister from "./pages/seller/SellerRegister.jsx";
+import SellerForgot from "./pages/seller/SellerForgot.jsx";
 import SellerBranchNew from "./pages/seller/SellerBranchNew.jsx";
 import SellerSuspension from "./pages/seller/SellerSuspension.jsx";
 import SellerLayout from "./pages/seller/SellerLayout.jsx";
@@ -80,6 +81,7 @@ export default function App() {
                   <Route path="orders/:id" element={guard(<OrderDetail />)} />
                   <Route path="my-shop/login" element={<SellerLogin />} />
                   <Route path="my-shop/register" element={<SellerRegister />} />
+                  <Route path="my-shop/forgot-password" element={<SellerForgot />} />
                   <Route path="*" element={<ComingSoon />} />
                 </Route>
                 <Route path="my-shop" element={<SellerLayout />}>

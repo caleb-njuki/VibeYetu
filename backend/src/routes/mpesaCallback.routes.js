@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { config } from '../config/env.js';
 import { handleCallback } from '../services/collection.service.js';
+import { handlePayoutResult, handlePayoutTimeout } from '../services/payoutQueue.service.js';
 import { handle } from '../utils/routeHelpers.js';
 
 const router = Router();
@@ -15,6 +16,18 @@ const sameSecret = (given) => {
   const a = Buffer.from(given), b = Buffer.from(want);
   return a.length === b.length && timingSafeEqual(a, b);
 };
+
+// Results of money we sent OUT (payouts and refunds).
+router.post('/mpesa/result/:secret', handle(async (req, res) => {
+  if (config.payments.mode !== 'daraja' || !sameSecret(req.params.secret)) return res.status(404).json({ error: 'Route not found' });
+  await handlePayoutResult(req.body);
+  res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
+}));
+router.post('/mpesa/timeout/:secret', handle(async (req, res) => {
+  if (config.payments.mode !== 'daraja' || !sameSecret(req.params.secret)) return res.status(404).json({ error: 'Route not found' });
+  await handlePayoutTimeout(req.body);
+  res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
+}));
 
 router.post('/mpesa/:secret', handle(async (req, res) => {
   if (config.payments.mode !== 'daraja' || !sameSecret(req.params.secret)) return res.status(404).json({ error: 'Route not found' });

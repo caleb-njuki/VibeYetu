@@ -1,6 +1,7 @@
 // Reads "where is the buyer" and paging from a request address, for example
 //   /api/products?lat=-1.2864&lng=36.8172&radiusKm=15&limit=20&offset=0
 import { httpError } from './httpError.js';
+import { MAX_RADIUS_KM } from './geo.js';
 
 export const DEFAULT_RADIUS_KM = 15;
 
@@ -18,14 +19,14 @@ export function parseNear(query = {}) {
   const lat = toNumber(query.lat);
   const lng = toNumber(query.lng);
   if (lat === null || lng === null || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-    throw httpError(400, 'Your location is not valid. Please choose your area again.');
+    throw httpError(400, 'Your location is not valid. Please allow location access and try again.');
   }
 
   let radiusKm = DEFAULT_RADIUS_KM;
   if (query.radiusKm !== undefined) {
     radiusKm = toNumber(query.radiusKm);
-    if (radiusKm === null || radiusKm < 1 || radiusKm > 100) {
-      throw httpError(400, 'Choose a distance between 1 and 100 km.');
+    if (radiusKm === null || radiusKm < 1 || radiusKm > MAX_RADIUS_KM) {
+      throw httpError(400, `Choose a distance between 1 and ${MAX_RADIUS_KM} km.`);
     }
   }
   return { lat, lng, radiusKm };

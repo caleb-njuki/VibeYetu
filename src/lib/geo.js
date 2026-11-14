@@ -1,6 +1,9 @@
 const EARTH_KM = 6371;
 const rad = (deg) => (deg * Math.PI) / 180;
 
+// A rough box around Kenya. A pin outside it is a mistake. The backend checks the same box.
+export const inKenya = (lat, lng) => typeof lat === "number" && typeof lng === "number" && lat >= -4.9 && lat <= 5.1 && lng >= 33.8 && lng <= 42.0;
+
 export const hasLocation = (place) => typeof place?.lat === "number" && typeof place?.lng === "number";
 
 // Straight-line distance in kilometres between two {lat, lng} points.

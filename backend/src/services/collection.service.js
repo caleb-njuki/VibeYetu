@@ -12,6 +12,8 @@ import { httpError } from '../utils/httpError.js';
 import { normalizePhone } from '../utils/phone.js';
 import { withTransaction } from '../utils/transaction.js';
 import { stkPush, stkQuery } from './daraja.service.js';
+import { getShopAd, settleAdPaid, adPaidMessage } from './ad.service.js';
+import { queueAdRefund } from './payoutQueue.service.js';
 import { expireGroup, getBuyerOrdersByIds, payCheckout, settleGroupPaid } from './order.service.js';
 
 const REUSE_SECONDS = 90; // a payment prompt younger than this is reused if the buyer taps Pay again
@@ -134,12 +136,26 @@ async function applyResult(paymentId, r) {
 
     if (r.resultCode !== 0) {
       await finish(r.resultCode === 1032 ? 'cancelled' : r.resultCode === 1037 ? 'timeout' : 'failed');
+      if (p.purpose === 'ad') await c.query(`UPDATE ads SET status = 'failed' WHERE id = $1 AND status = 'unpaid'`, [p.ad_id]);
       return;
     }
     // The money was taken. A callback also tells us the amount: it must be what we asked for.
     if (r.source === 'callback' && r.amount !== p.amount) {
       console.error(`M-Pesa amount mismatch on payment ${p.id}: asked ${p.amount}, got ${r.amount}`);
       await finish('mismatch', r.receipt);
+      return;
+    }
+    if (p.purpose === 'ad') {
+      const ad = (await c.query('SELECT a.*, s.suspended, s.closed_at FROM ads a JOIN shops s ON s.id = a.shop_id WHERE a.id = $1 FOR UPDATE OF a', [p.ad_id])).rows[0];
+      if (ad && ad.status === 'unpaid' && !ad.suspended && !ad.closed_at) {
+        await settleAdPaid(c, ad);
+        await finish('paid', r.receipt);
+      } else {
+        // The ad can no longer run (it was given up on, or the shop was closed or suspended): the money goes straight back.
+        console.error(`M-Pesa money received for payment ${p.id} but ad ${p.ad_id} is ${ad?.status}. Refunding it.`);
+        await finish('late', r.receipt);
+        if (ad) await queueAdRefund(c, { ...ad, payment_provider: 'mpesa' }, p.phone);
+      }
       return;
     }
     const g = (await c.query('SELECT * FROM checkout_groups WHERE id = $1 FOR UPDATE', [p.group_id])).rows[0];
@@ -219,17 +235,40 @@ export async function checkoutStatus(buyerId, groupId) {
   return { status: 'failed', message: failureText(last.result_code) };
 }
 
+// ---- The seller's app asks how an ad payment went (it polls every few seconds) ----
+// -> { status: "pending" | "paid" | "failed", message, ad? }
+export async function adPaymentStatus(shopId, adId) {
+  const load = async () => {
+    const ad = (await pool.query('SELECT id, status FROM ads WHERE id = $1 AND shop_id = $2', [adId, shopId])).rows[0];
+    if (!ad) throw httpError(404, 'Ad not found.');
+    const last = (await pool.query(`SELECT * FROM payments WHERE ad_id = $1 ORDER BY id DESC LIMIT 1`, [adId])).rows[0];
+    return { ad, last };
+  };
+  let { ad, last } = await load();
+  if (ad.status === 'unpaid' && last?.status === 'pending' && Date.now() - new Date(last.created_at).getTime() > QUERY_AFTER_SECONDS * 1000) {
+    await reconcilePayment(last.id);
+    ({ ad, last } = await load());
+  }
+  if (ad.status === 'unpaid') return { status: 'pending', message: 'Check your phone and enter your M-Pesa PIN.' };
+  if (ad.status === 'failed') {
+    if (last && (last.status === 'late' || last.status === 'mismatch')) return { status: 'failed', message: 'We received a payment but could not start your ad. It is being refunded.' };
+    return { status: 'failed', message: failureText(last?.result_code) };
+  }
+  const full = await getShopAd(shopId, adId);
+  return { status: 'paid', ad: full, message: adPaidMessage(full) };
+}
+
 // ---- For staff ----
 // Payments that need a human: money that arrived but could not be used, and prompts stuck for a long time.
 export async function listPaymentProblems() {
   const { rows } = await pool.query(
-    `SELECT id, purpose, group_id, amount, phone, status, result_desc, mpesa_receipt, created_at, completed_at FROM payments
+    `SELECT id, purpose, group_id, ad_id, amount, phone, status, result_desc, mpesa_receipt, created_at, completed_at FROM payments
      WHERE status IN ('mismatch', 'late') OR (status IN ('starting', 'pending') AND created_at < now() - interval '30 minutes')
      ORDER BY id DESC LIMIT 200`
   );
   return {
     payments: rows.map((r) => ({
-      id: String(r.id), purpose: r.purpose, groupId: r.group_id, amount: r.amount, phone: r.phone, status: r.status,
+      id: String(r.id), purpose: r.purpose, groupId: r.group_id, adId: r.ad_id, amount: r.amount, phone: r.phone, status: r.status,
       note: r.result_desc || '', receipt: r.mpesa_receipt || '', at: new Date(r.created_at).getTime(),
     })),
   };

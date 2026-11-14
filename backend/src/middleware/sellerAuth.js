@@ -4,8 +4,10 @@ import { config } from '../config/env.js';
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 
-export function signSellerToken(seller) {
-  return jwt.sign({ role: 'seller' }, config.jwt.secret, {
+// `tv` is the seller's token version. A password change raises it, which ends every older login.
+export async function signSellerToken(seller) {
+  const tv = (await pool.query('SELECT token_version FROM sellers WHERE id = $1', [seller.id])).rows[0]?.token_version ?? 0;
+  return jwt.sign({ role: 'seller', tv }, config.jwt.secret, {
     algorithm: 'HS256',
     subject: String(seller.id),
     expiresIn: config.jwt.expiresIn,
@@ -29,8 +31,9 @@ export async function requireSeller(req, res, next) {
       throw httpError(401, 'Please log in.');
     }
 
-    const { rows } = await pool.query('SELECT id, email, full_name, phone FROM sellers WHERE id = $1', [payload.sub]);
+    const { rows } = await pool.query('SELECT id, email, full_name, phone, token_version FROM sellers WHERE id = $1', [payload.sub]);
     if (!rows[0]) throw httpError(401, 'Please log in.');
+    if ((payload.tv ?? 0) !== rows[0].token_version) throw httpError(401, 'Your password was changed. Please sign in again.');
 
     req.seller = rows[0];
     next();

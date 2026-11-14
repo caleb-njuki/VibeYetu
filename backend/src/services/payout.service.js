@@ -5,6 +5,7 @@ import { normalizePhone } from '../utils/phone.js';
 import { maskPhone } from '../utils/phoneMask.js';
 import { withTransaction } from '../utils/transaction.js';
 import { consumeVerified, requestCode, verifyCode } from './challenge.service.js';
+import { releaseWaitingPayouts } from './payoutQueue.service.js';
 import { addShopNotice } from './notification.service.js';
 
 export const PAYOUT_METHODS = ['till', 'paybill', 'pochi', 'mpesa'];
@@ -85,6 +86,7 @@ export async function savePayout(sellerId, shopId, draft) {
          SET method = $2, till = $3, paybill = $4, account = $5, phone = $6, updated_at = now()`,
       [shopId, v.method, v.till ?? null, v.paybill ?? null, v.account ?? null, v.phone ?? null]
     );
+    await releaseWaitingPayouts(c, shopId); // money that was waiting for a payout method can now be sent
     // The notice reaches the bell, so a seller notices a change they did not make.
     await addShopNotice(shopId, `Your payout method was changed to ${describePayout(v)}. If this was not you, contact support now.`, '/my-shop/settings', c);
   });

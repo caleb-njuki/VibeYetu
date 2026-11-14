@@ -1,5 +1,7 @@
 // Talking to Safaricom Daraja (M-Pesa). Only this file knows how the Daraja web calls look.
 // Secrets are read from config and never printed.
+import { constants, publicEncrypt, X509Certificate } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { config } from '../config/env.js';
 import { httpError } from '../utils/httpError.js';
 
@@ -95,3 +97,80 @@ export async function stkQuery(checkoutRequestId) {
   }
   return { done: false };
 }
+
+// ---- Money OUT: B2C (to a phone) and B2B (to a Till or Paybill) ----
+
+// Safaricom wants the initiator's password locked with its public certificate (RSA). The certificate file comes
+// from the Daraja portal (sandbox) or from Safaricom (live).
+let cachedCredential = null;
+function securityCredential() {
+  if (config.payouts.securityCredential) return config.payouts.securityCredential; // pasted from the Daraja portal
+  const { initiatorPassword, certPath } = config.payouts;
+  if (cachedCredential?.key === `${certPath}|${initiatorPassword}`) return cachedCredential.value;
+  const cert = new X509Certificate(readFileSync(certPath)); // accepts the .cer (binary) and the .pem (text) forms
+  const value = publicEncrypt({ key: cert.publicKey, padding: constants.RSA_PKCS1_PADDING }, Buffer.from(initiatorPassword)).toString('base64');
+  cachedCredential = { key: `${certPath}|${initiatorPassword}`, value };
+  return value;
+}
+
+const resultUrl = () => `${config.payments.daraja.baseCallbackUrl}/result/${config.payments.daraja.callbackSecret}`;
+const timeoutUrl = () => `${config.payments.daraja.baseCallbackUrl}/timeout/${config.payments.daraja.callbackSecret}`;
+
+// Sends a payout request. On failure the error says whether M-Pesa could have accepted it:
+//   err.refused = true   the request was NOT accepted (safe to try again)
+//   err.unknown = true   we cannot tell (a network failure after sending): do NOT send again without checking
+async function sendPayout(path, body) {
+  let token;
+  try {
+    token = await getToken();
+    body = { ...body, SecurityCredential: securityCredential() };
+  } catch (err) {
+    err.refused = true; // nothing was sent yet
+    throw err;
+  }
+  let r;
+  try {
+    r = await call(path, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
+  } catch (err) {
+    err.unknown = true;
+    throw err;
+  }
+  if (!r.ok || String(r.data?.ResponseCode) !== '0' || !r.data?.ConversationID) {
+    const err = httpError(502, `M-Pesa did not accept the payout: ${r.data?.errorMessage || r.data?.ResponseDescription || 'HTTP ' + r.status}`);
+    err.refused = r.status >= 400 && r.status < 500 ? true : false;
+    err.unknown = !err.refused;
+    console.error('Daraja: payout request refused. HTTP status:', r.status, 'code:', r.data?.errorCode || r.data?.ResponseCode, r.data?.errorMessage || r.data?.ResponseDescription || '');
+    throw err;
+  }
+  return { conversationId: r.data.ConversationID, originatorConversationId: r.data.OriginatorConversationID };
+}
+
+// To a phone. phone: "254712345678".
+export const b2cPay = ({ phone, amount, remarks = 'VibeYetu payout' }) =>
+  sendPayout('/mpesa/b2c/v1/paymentrequest', {
+    InitiatorName: config.payouts.initiatorName,
+    CommandID: 'BusinessPayment',
+    Amount: amount,
+    PartyA: config.payouts.shortcode,
+    PartyB: phone,
+    Remarks: String(remarks).slice(0, 100),
+    QueueTimeOutURL: timeoutUrl(),
+    ResultURL: resultUrl(),
+    Occasion: 'VibeYetu',
+  });
+
+// To a Till (BusinessBuyGoods) or a Paybill (BusinessPayBill).
+export const b2bPay = ({ kind, number, account, amount, remarks = 'VibeYetu payout' }) =>
+  sendPayout('/mpesa/b2b/v1/paymentrequest', {
+    Initiator: config.payouts.initiatorName,
+    CommandID: kind === 'paybill' ? 'BusinessPayBill' : 'BusinessBuyGoods',
+    SenderIdentifierType: '4',
+    RecieverIdentifierType: '4',
+    Amount: amount,
+    PartyA: config.payouts.shortcode,
+    PartyB: number,
+    AccountReference: String(account || 'VibeYetu').slice(0, 20),
+    Remarks: String(remarks).slice(0, 100),
+    QueueTimeOutURL: timeoutUrl(),
+    ResultURL: resultUrl(),
+  });

@@ -48,9 +48,6 @@ export default function AdminLogin() {
           </label>
           <input id="a-pass" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
         </div>
-        <p className="rounded-xl bg-vibe-light px-3 py-2 text-xs text-vibe-dark">
-          Demo mode: {DEMO_EMAIL} / {DEMO_PASSWORD}
-        </p>
         {error && (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {error}

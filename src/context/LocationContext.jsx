@@ -1,26 +1,26 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { AREAS, findArea } from "../lib/areas.js";
-import { distanceKm } from "../lib/geo.js";
 
 // Where the buyer is. Search, the home page and ads only show shops near this point.
+// The point always comes from the phone or browser (GPS). Buyers choose only how far to look.
 const LocationContext = createContext(null);
 const STORAGE_KEY = "vibeyetu_location";
 
-export const RADII = [5, 10, 15, 25];
-const DEFAULT_RADIUS = 15;
-const DEFAULT_LOCATION = { lat: -1.2864, lng: 36.8172, label: "Nairobi CBD", source: "default", areaId: "cbd" };
-
-const areaLabel = (a) => (a.name.includes(a.town) ? a.name : `${a.name}, ${a.town}`);
+export const RADII = [10, 20, 40];
+const DEFAULT_RADIUS = 20;
+// Until the buyer shares their location we look around Nairobi CBD, and the button says so.
+const DEFAULT_LOCATION = { lat: -1.2864, lng: 36.8172, label: "Set my location", source: "default" };
 
 function load() {
   try {
     const p = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    if (p && typeof p.lat === "number" && typeof p.lng === "number" && typeof p.label === "string") {
+    if (p && p.source === "gps" && typeof p.lat === "number" && typeof p.lng === "number") {
       return {
-        location: { lat: p.lat, lng: p.lng, label: p.label, source: p.source || "area", areaId: p.areaId || "" },
+        location: { lat: p.lat, lng: p.lng, label: "My location", source: "gps" },
         radiusKm: RADII.includes(p.radiusKm) ? p.radiusKm : DEFAULT_RADIUS,
       };
     }
+    // An older saved area or radius is dropped; only the distance is kept when it is still allowed.
+    if (p && RADII.includes(p.radiusKm)) return { location: DEFAULT_LOCATION, radiusKm: p.radiusKm };
   } catch {
     // Unreadable saved location: use the default below.
   }
@@ -54,15 +54,8 @@ export function LocationProvider({ children }) {
       pickerOpen,
       openPicker: () => setPickerOpen(true),
       closePicker: () => setPickerOpen(false),
-      setArea: (id) => {
-        const a = findArea(id);
-        if (!a) return;
-        setState((s) => ({ ...s, location: { lat: a.lat, lng: a.lng, label: areaLabel(a), source: "area", areaId: a.id } }));
-      },
       setCoords: (lat, lng) => {
-        const closest = AREAS.map((a) => ({ a, km: distanceKm({ lat, lng }, a) })).sort((x, y) => x.km - y.km)[0];
-        const label = closest && closest.km <= 30 ? `Near ${closest.a.name}` : "Your location";
-        setState((s) => ({ ...s, location: { lat, lng, label, source: "gps", areaId: "" } }));
+        setState((s) => ({ ...s, location: { lat, lng, label: "My location", source: "gps" } }));
       },
       setRadius: (km) => {
         if (RADII.includes(km)) setState((s) => ({ ...s, radiusKm: km }));

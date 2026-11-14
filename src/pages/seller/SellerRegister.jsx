@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import Button from "../../components/Button.jsx";
+import PinPicker from "../../components/PinPicker.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { AREAS, TOWNS } from "../../lib/areas.js";
@@ -41,7 +42,7 @@ export default function SellerRegister() {
     businessName: "",
     businessRegNo: "",
   });
-  const [shop, setShop] = useState({ name: "", areaId: "", description: "" });
+  const [shop, setShop] = useState({ name: "", areaId: "", description: "", lat: null, lng: null });
   const [consent, setConsent] = useState({ terms: false, data: false, accurate: false });
 
   // Someone who is already signed in goes to their shop, except right after registering.
@@ -73,6 +74,7 @@ export default function SellerRegister() {
     const name = checkShopName(shop.name);
     if (!name.ok) return setError(name.message);
     if (!shop.areaId) return setError("Choose the area your shop is in.");
+    if (shop.lat === null) return setError("Place the pin on the map to show exactly where your shop is.");
     if (!consent.terms || !consent.data || !consent.accurate) return setError("Please tick all three agreements to continue.");
 
     setBusy(true);
@@ -225,8 +227,8 @@ export default function SellerRegister() {
         {step === 2 && (
           <>
             <ShopNameField id="r-shop" value={shop.name} onChange={(name) => setShop((s) => ({ ...s, name }))} areaId={shop.areaId} />
-            <Field id="r-area" label="Where is your shop?" why="Buyers near this area will see your shop.">
-              <select id="r-area" value={shop.areaId} onChange={(e) => setShop((s) => ({ ...s, areaId: e.target.value }))} className={inputCls}>
+            <Field id="r-area" label="Which area is your shop in?" why="Shown to buyers as the name of the place.">
+              <select id="r-area" value={shop.areaId} onChange={(e) => setShop((s) => ({ ...s, areaId: e.target.value, lat: null, lng: null }))} className={inputCls}>
                 <option value="">Choose your area</option>
                 {TOWNS.map((town) => (
                   <optgroup key={town} label={town}>
@@ -239,6 +241,7 @@ export default function SellerRegister() {
                 ))}
               </select>
             </Field>
+            <PinPicker value={shop.lat === null ? null : { lat: shop.lat, lng: shop.lng }} areaId={shop.areaId} onChange={(p) => setShop((s) => ({ ...s, lat: p.lat, lng: p.lng }))} />
             <Field id="r-desc" label="About your shop (optional)">
               <textarea
                 id="r-desc"

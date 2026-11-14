@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import Button from "./Button.jsx";
-import { DEMO_ENABLED } from "../lib/sellers.js";
 import {
   RESET_CODE_LENGTH,
-  RESET_DEMO_CODE,
   completePasswordReset,
   requestResetCode,
   verifyResetCode,
@@ -14,7 +12,7 @@ const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text
 
 // Three small steps inside the Close shop box: send a code, enter it, choose a new password.
 // `onDone` is called after the new password is saved. `onCancel` goes back to the password box.
-export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel }) {
+export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, backLabel = "Back to closing my shop" }) {
   const [stage, setStage] = useState("send"); // "send" | "code" | "new"
   const [sentTo, setSentTo] = useState("");
   const [code, setCode] = useState("");
@@ -136,7 +134,6 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel })
               data-autofocus
             />
           </div>
-          {DEMO_ENABLED && <p className="text-xs text-ink-mute">Demo mode: no SMS is sent. The code is {RESET_DEMO_CODE}.</p>}
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" disabled={busy}>
               {busy ? "Checking..." : "Check code"}
@@ -191,7 +188,7 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel })
       )}
 
       <button type="button" onClick={onCancel} disabled={busy} className="text-sm font-semibold text-vibe hover:underline">
-        Back to closing my shop
+        {backLabel}
       </button>
     </div>
   );

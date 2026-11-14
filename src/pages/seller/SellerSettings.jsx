@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { CheckCircle2, Circle } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
+import PinPicker from "../../components/PinPicker.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { deleteImage } from "../../lib/images.js";
 import { getPayout } from "../../lib/payouts.js";
@@ -41,6 +42,7 @@ export default function SellerSettings() {
           description: s.description || "",
           photo: s.photo ? [s.photo] : [],
           areaId: s.areaId || "",
+          pin: typeof s.lat === "number" && typeof s.lng === "number" ? { lat: s.lat, lng: s.lng } : null,
           opens: s.opens || "08:00",
           closes: s.closes || "18:00",
           delivery: s.fulfillment.includes("delivery"),
@@ -68,7 +70,7 @@ export default function SellerSettings() {
   const checklist = [
     ["A shop photo", form.photo.length > 0],
     ["A shop description of at least 20 characters", form.description.trim().length >= 20],
-    ["Your shop's area, so nearby buyers find you", Boolean(findArea(form.areaId))],
+    ["Your shop's area and a pin on the map, so nearby buyers find you", Boolean(findArea(form.areaId)) && Boolean(form.pin)],
     ["Opening hours", form.opens < form.closes],
     ["Delivery or pickup chosen", form.delivery || form.pickup],
     ["A contact phone number", Boolean(normalizePhone(form.phone))],
@@ -83,12 +85,11 @@ export default function SellerSettings() {
     const nameCheck = checkShopName(form.name, { ignoreShopId: seller.shopId });
     if (!nameCheck.ok) return setError(nameCheck.message);
     if (!area) return setError("Choose the area your shop is in.");
+    if (!form.pin) return setError("Place the pin on the map to show exactly where your shop is.");
     if (!(form.opens < form.closes)) return setError("The closing time must be after the opening time.");
     if (!form.delivery && !form.pickup) return setError("Choose delivery, pickup or both.");
     const phone = form.phone.trim() ? normalizePhone(form.phone) : "";
     if (form.phone.trim() && !phone) return setError("Enter a valid contact number, for example 0712 345 678.");
-    // Keep the shop's exact point unless the seller moved to a different area.
-    const moved = form.areaId !== shop.areaId;
     saveShopSettings(seller.shopId, {
       public: {
         name: nameCheck.name,
@@ -97,8 +98,8 @@ export default function SellerSettings() {
         areaId: area.id,
         area: area.name,
         town: area.town,
-        lat: moved || typeof shop.lat !== "number" ? area.lat : shop.lat,
-        lng: moved || typeof shop.lng !== "number" ? area.lng : shop.lng,
+        lat: Math.round(form.pin.lat * 1e6) / 1e6,
+        lng: Math.round(form.pin.lng * 1e6) / 1e6,
         opens: form.opens,
         closes: form.closes,
         fulfillment: [form.delivery && "delivery", form.pickup && "pickup"].filter(Boolean),
@@ -174,9 +175,9 @@ export default function SellerSettings() {
 
         <div className="space-y-1.5">
           <label htmlFor="s-area" className="text-sm font-semibold">
-            Where is your shop?
+            Which area is your shop in?
           </label>
-          <select id="s-area" value={form.areaId} onChange={set("areaId")} className={inputCls}>
+          <select id="s-area" value={form.areaId} onChange={(e) => { setSaved(false); setForm((f) => ({ ...f, areaId: e.target.value, pin: null })); }} className={inputCls}>
             <option value="">Choose your area</option>
             {TOWNS.map((town) => (
               <optgroup key={town} label={town}>
@@ -188,8 +189,9 @@ export default function SellerSettings() {
               </optgroup>
             ))}
           </select>
-          <p className="text-xs text-ink-mute">Buyers near this area see your shop. Placing an exact pin on a map comes later.</p>
+          <p className="text-xs text-ink-mute">Shown to buyers as the name of the place. If you change it, place the pin again.</p>
         </div>
+        <PinPicker value={form.pin} areaId={form.areaId} onChange={(p) => { setSaved(false); setForm((f) => ({ ...f, pin: p })); }} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">

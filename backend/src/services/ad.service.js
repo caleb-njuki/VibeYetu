@@ -9,6 +9,10 @@ import {
   contrastOnWhite, isHexColor, textIssue,
 } from '../utils/adRules.js';
 import { imageUrl, isOwnImage } from './cloudinary.service.js';
+import { config } from '../config/env.js';
+import { normalizePhone } from '../utils/phone.js';
+import { stkPush } from './daraja.service.js';
+import { queueAdRefund } from './payoutQueue.service.js';
 import { chargeAdvertiser, refundAdvertiser } from './payment.service.js';
 import { addShopNotice } from './notification.service.js';
 
@@ -18,7 +22,7 @@ const ms = (d) => (d ? new Date(d).getTime() : null);
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 // live, scheduled, ended, attention, stopped or refunded, by the database clock.
-const STATE = `CASE WHEN a.status IN ('stopped', 'refunded', 'attention') THEN a.status
+const STATE = `CASE WHEN a.status IN ('stopped', 'refunded', 'attention', 'unpaid', 'failed') THEN a.status
                     WHEN now() < a.starts_at THEN 'scheduled' WHEN now() > a.ends_at THEN 'ended' ELSE 'live' END`;
 
 const shapeAd = (a) => ({
@@ -44,8 +48,32 @@ const shapeAd = (a) => ({
 
 // ---------- Seller ----------
 export async function listShopAds(shopId) {
-  const { rows } = await pool.query(`SELECT a.*, ${STATE} AS state FROM ads a WHERE a.shop_id = $1 ORDER BY a.created_at DESC, a.id LIMIT 100`, [shopId]);
+  const { rows } = await pool.query(`SELECT a.*, ${STATE} AS state FROM ads a WHERE a.shop_id = $1 AND a.status NOT IN ('unpaid', 'failed') ORDER BY a.created_at DESC, a.id LIMIT 100`, [shopId]);
   return { ads: rows.map(shapeAd) };
+}
+
+const paidMessage = (ad) =>
+  ad.state === 'attention'
+    ? `Your payment of ${formatKES(ad.total)} was received, but your ad could not go live yet: ${ad.issue} Our team will sort it out. If it cannot be fixed, you are refunded.`
+    : `Payment of ${formatKES(ad.total)} received. Your ad is live now for ${ad.days} ${ad.days === 1 ? 'day' : 'days'}.`;
+
+export async function getShopAd(shopId, adId) {
+  const { rows } = await pool.query(`SELECT a.*, ${STATE} AS state FROM ads a WHERE a.id = $1 AND a.shop_id = $2`, [adId, shopId]);
+  return rows[0] ? shapeAd(rows[0]) : null;
+}
+
+// The M-Pesa money for an ad has arrived (called by collection.service inside its transaction `c`, with the ad row locked).
+// The ad goes live, or waits for staff if the automatic checks found a problem.
+export async function settleAdPaid(c, ad) {
+  const status = ad.issue ? 'attention' : 'approved';
+  await c.query(
+    `UPDATE ads SET status = $2, paid_at = now(),
+            starts_at = CASE WHEN $2 = 'approved' THEN now() END,
+            ends_at = CASE WHEN $2 = 'approved' THEN now() + make_interval(secs => $3) END
+     WHERE id = $1`,
+    [ad.id, status, ad.days * DAY_SECONDS]
+  );
+  await addShopNotice(ad.shop_id, status === 'attention' ? `Your ad "${ad.headline}" was paid but needs a check by our team: ${ad.issue}` : `Your ad "${ad.headline}" is live.`, '/my-shop/ads', c);
 }
 
 export async function createAd(shopId, input) {
@@ -63,8 +91,15 @@ export async function createAd(shopId, input) {
     if (subtext && contrastOnWhite(input.subtextColor) < MIN_CONTRAST) throw httpError(400, 'Your extra text colour is too light to read on a white ad. Pick a darker colour or add a photo.');
   }
   const total = input.days * PRICE_PER_DAY; // the price comes from here, never from the app
+  const daraja = config.payments.mode === 'daraja';
+  let phone = null; // 254712345678, the phone that gets the M-Pesa prompt
+  if (daraja) {
+    const normalized = normalizePhone(String(input.phone ?? ''));
+    if (!normalized || !normalized.startsWith('+254')) throw httpError(400, 'Enter the M-Pesa phone number you want to pay from.');
+    phone = normalized.slice(1);
+  }
 
-  const id = await withTransaction(async (c) => {
+  const made = await withTransaction(async (c) => {
     const shop = (await c.query('SELECT id, suspended, closed_at FROM shops WHERE id = $1 FOR UPDATE', [shopId])).rows[0];
     if (!shop || shop.closed_at) throw httpError(404, 'Shop not found.');
     if (shop.suspended) throw httpError(409, 'Your shop is suspended, so you cannot buy ads right now.');
@@ -79,7 +114,7 @@ export async function createAd(shopId, input) {
       productLive = p.active && !p.deleted_at;
     }
     const open = (await c.query(
-      `SELECT count(*)::int AS n FROM ads WHERE shop_id = $1 AND (status = 'attention' OR (status = 'approved' AND ends_at > now()))`, [shopId]
+      `SELECT count(*)::int AS n FROM ads WHERE shop_id = $1 AND (status = 'attention' OR (status = 'approved' AND ends_at > now()) OR (status = 'unpaid' AND created_at > now() - interval '10 minutes'))`, [shopId]
     )).rows[0].n;
     if (open >= MAX_OPEN_ADS_PER_SHOP) throw httpError(409, `You already have ${MAX_OPEN_ADS_PER_SHOP} ads waiting or running. Stop one or wait for one to end.`);
 
@@ -89,7 +124,8 @@ export async function createAd(shopId, input) {
     if (!issue && liveProducts === 0) issue = 'The shop has no products to show yet.';
     if (!issue && !productLive) issue = 'The product chosen is not available.';
 
-    const charge = await chargeAdvertiser({ amount: total, shopId });
+    // Simulated mode charges here. With M-Pesa the ad waits as 'unpaid' until the seller pays on their phone.
+    const charge = daraja ? { ok: true, provider: 'mpesa' } : await chargeAdvertiser({ amount: total, shopId });
     if (!charge.ok) throw httpError(402, 'The payment did not go through. You have not been charged. Please try again.');
 
     const adId = newId();
@@ -100,20 +136,37 @@ export async function createAd(shopId, input) {
                CASE WHEN $13 = 'approved' THEN now() END,
                CASE WHEN $13 = 'approved' THEN now() + make_interval(secs => $15) END, $16)`,
       [adId, shopId, headline, subtext, image, Boolean(image) && input.darken !== false, input.headlineColor, input.subtextColor,
-       input.target, productId, input.days, total, issue ? 'attention' : 'approved', issue ?? '', input.days * DAY_SECONDS, charge.provider]
+       input.target, productId, input.days, total, daraja ? 'unpaid' : issue ? 'attention' : 'approved', issue ?? '', input.days * DAY_SECONDS, charge.provider]
     );
-    return adId;
+    let paymentId = null;
+    if (daraja) {
+      paymentId = (await c.query(
+        `INSERT INTO payments (purpose, ad_id, shop_id, amount, phone) VALUES ('ad', $1, $2, $3, $4) RETURNING id`, [adId, shopId, total, phone]
+      )).rows[0].id;
+    }
+    return { adId, paymentId };
   });
+  const id = made.adId;
+
+  if (daraja) {
+    // The web call to Safaricom happens outside the database transaction.
+    try {
+      const sent = await stkPush({ phone, amount: total, reference: id });
+      await pool.query(`UPDATE payments SET status = 'pending', merchant_request_id = $2, checkout_request_id = $3 WHERE id = $1 AND status = 'starting'`, [made.paymentId, sent.merchantRequestId, sent.checkoutRequestId]);
+    } catch (err) {
+      await pool.query(`UPDATE payments SET status = 'failed', result_desc = $2, completed_at = now() WHERE id = $1 AND status = 'starting'`, [made.paymentId, String(err.message).slice(0, 200)]);
+      await pool.query(`UPDATE ads SET status = 'failed' WHERE id = $1 AND status = 'unpaid'`, [id]);
+      throw err;
+    }
+    return { adId: id, status: 'pending', message: 'Check your phone and enter your M-Pesa PIN to pay for your ad.' };
+  }
 
   const { rows } = await pool.query(`SELECT a.*, ${STATE} AS state FROM ads a WHERE a.id = $1`, [id]);
   const ad = shapeAd(rows[0]);
-  return {
-    ad,
-    message: ad.state === 'attention'
-      ? `Your payment of ${formatKES(total)} was received, but your ad could not go live yet: ${ad.issue} Our team will sort it out. If it cannot be fixed, you are refunded.`
-      : `Payment of ${formatKES(total)} received. Your ad is live now for ${ad.days} ${ad.days === 1 ? 'day' : 'days'}.`,
-  };
+  return { ad, message: paidMessage(ad) };
 }
+
+export { paidMessage as adPaidMessage };
 
 // An ad that is waiting, scheduled or live can be stopped. There is no refund for a stopped ad.
 export const stopShopAd = (shopId, adId) => stopAd(adId, { shopId });
@@ -209,7 +262,7 @@ export async function reportAd(buyerId, adId, reason) {
 // ---------- Staff ----------
 export async function adminListAds() {
   const { rows } = await pool.query(
-    `SELECT a.*, ${STATE} AS state, s.name AS shop_name FROM ads a JOIN shops s ON s.id = a.shop_id ORDER BY a.created_at DESC, a.id LIMIT 300`
+    `SELECT a.*, ${STATE} AS state, s.name AS shop_name FROM ads a JOIN shops s ON s.id = a.shop_id WHERE a.status NOT IN ('unpaid', 'failed') ORDER BY a.created_at DESC, a.id LIMIT 300`
   );
   const reports = rows.length ? (await pool.query('SELECT ad_id, reason, created_at FROM ad_reports WHERE ad_id = ANY($1::text[]) ORDER BY created_at', [rows.map((r) => r.id)])).rows : [];
   return {
@@ -243,8 +296,14 @@ export const adminRefund = (adminId, adId) =>
   withTransaction(async (c) => {
     const ad = await lockAd(c, adId);
     if (ad.state !== 'attention') throw httpError(409, 'Only an ad that needs attention can be refunded.');
-    const back = await refundAdvertiser({ amount: ad.total, shopId: ad.shop_id });
-    if (!back.ok) throw httpError(502, 'The refund did not go through. Please try again.');
+    if (ad.payment_provider === 'mpesa') {
+      // The money goes back to the phone that paid, through the payout worker.
+      const paid = (await c.query(`SELECT phone FROM payments WHERE ad_id = $1 AND status = 'paid' ORDER BY id DESC LIMIT 1`, [adId])).rows[0];
+      await queueAdRefund(c, ad, paid?.phone);
+    } else {
+      const back = await refundAdvertiser({ amount: ad.total, shopId: ad.shop_id });
+      if (!back.ok) throw httpError(502, 'The refund did not go through. Please try again.');
+    }
     await c.query(`UPDATE ads SET status = 'refunded', refunded_at = now() WHERE id = $1`, [adId]);
     await addShopNotice(ad.shop_id, `Your ad "${ad.headline}" could not run, and you were refunded ${formatKES(ad.total)}.`, '/my-shop/ads', c);
     await audit(c, adminId, 'refund_ad', adId, formatKES(ad.total));

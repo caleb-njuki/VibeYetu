@@ -16,11 +16,10 @@ import { formatSize } from "../lib/sizes.js";
 
 const REJECT_REASONS = ["Item is faulty", "Wrong item", "Not as described", "Damaged in transit"];
 const card = "space-y-4 rounded-2xl bg-white p-5 shadow-card";
-const demoBtn = "rounded-full border border-ink/30 bg-white px-4 py-2 text-sm font-semibold hover:bg-ink/5";
 
 export default function OrderDetail() {
   const { id } = useParams();
-  const { orders, buyerConfirm, buyerReject, requestRefund, submitReport, expireNow, expirePendingNow, supportRefund, supportRelease } = useOrders();
+  const { orders, buyerConfirm, buyerReject, requestRefund, submitReport } = useOrders();
   const now = useNow(1000);
   const { unreadOrderIds, markOrderRead } = useNotifications("buyer");
 
@@ -341,39 +340,6 @@ export default function OrderDetail() {
           ))}
         </ol>
       </section>
-
-      {["pending", "accepted", "dispatched", "review"].includes(status) && (
-        <section className="space-y-3 rounded-2xl border-2 border-dashed border-ink/30 p-5">
-          <h2 className="text-sm font-extrabold uppercase tracking-wider text-ink-mute">Demo controls (removed before launch)</h2>
-          <div className="flex flex-wrap gap-2">
-            {status === "pending" && (
-              <>
-                <Link to="/my-shop" className={demoBtn}>
-                  Open My Shop to accept this order
-                </Link>
-                <button type="button" className={demoBtn} onClick={() => expirePendingNow(order.id)}>
-                  Fast-forward 1 hour (seller does not respond)
-                </button>
-              </>
-            )}
-            {(status === "accepted" || status === "dispatched") && (
-              <button type="button" className={demoBtn} onClick={() => expireNow(order.id)}>
-                Fast-forward 24 hours
-              </button>
-            )}
-            {status === "review" && (
-              <>
-                <button type="button" className={demoBtn} onClick={() => supportRefund(order.id)}>
-                  Support: refund the buyer
-                </button>
-                <button type="button" className={demoBtn} onClick={() => supportRelease(order.id)}>
-                  Support: release to seller
-                </button>
-              </>
-            )}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

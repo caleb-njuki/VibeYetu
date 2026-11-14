@@ -105,7 +105,7 @@ export default function Home() {
     <div className="mx-auto max-w-7xl space-y-14 px-4 pt-8">
       {location.source === "default" && (
         <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-vibe-light px-4 py-3 text-sm text-vibe-dark">
-          Showing shops near {location.label}.
+          Showing shops around Nairobi CBD until you share your location.
           <button type="button" onClick={openPicker} className="font-semibold underline">
             Use my location
           </button>
@@ -161,7 +161,7 @@ export default function Home() {
         </>
       ) : home.total === 0 ? (
         <div className="space-y-3 rounded-2xl bg-white p-8 text-center shadow-card">
-          <p className="text-ink-mute">No shops within {radiusKm} km of you yet. Try a bigger distance or another area.</p>
+          <p className="text-ink-mute">No shops within {radiusKm} km of you yet. Try a bigger distance or update your location.</p>
           <Button onClick={openPicker}>Change location</Button>
         </div>
       ) : (

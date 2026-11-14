@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Crosshair, MapPin, X } from "lucide-react";
 import { RADII, useUserLocation } from "../context/LocationContext.jsx";
-import { AREAS, TOWNS } from "../lib/areas.js";
 
 function Picker({ onClose }) {
-  const { location, radiusKm, setArea, setCoords, setRadius } = useUserLocation();
+  const { location, radiusKm, setCoords, setRadius } = useUserLocation();
   const [status, setStatus] = useState("idle"); // idle, locating or error
   const [message, setMessage] = useState("");
 
@@ -25,7 +24,7 @@ function Picker({ onClose }) {
   function useMyLocation() {
     if (!navigator.geolocation) {
       setStatus("error");
-      setMessage("This browser cannot share your location. Choose your area below.");
+      setMessage("This browser cannot share your location. Try another browser or phone.");
       return;
     }
     setStatus("locating");
@@ -40,8 +39,8 @@ function Picker({ onClose }) {
         setStatus("error");
         setMessage(
           err.code === 1
-            ? "Location is blocked for this site. Choose your area below."
-            : "We could not find your location. Choose your area below."
+            ? "Location is blocked for this site. Allow location for VibeYetu in your browser settings, then try again."
+            : "We could not find your location. Check that location is turned on, then try again."
         );
       },
       { timeout: 10000, maximumAge: 300000 }
@@ -59,7 +58,7 @@ function Picker({ onClose }) {
             <h2 id="loc-title" className="text-xl font-extrabold">
               Where are you?
             </h2>
-            <p className="text-sm text-ink-mute">We show shops near you, so your order arrives fast.</p>
+            <p className="text-sm text-ink-mute">We show shops near you, so your order arrives fast. Your location stays on your device.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-2 hover:bg-ink/5">
             <X className="h-5 w-5" aria-hidden="true" />
@@ -74,38 +73,13 @@ function Picker({ onClose }) {
             className="flex w-full items-center justify-center gap-2 rounded-full bg-vibe px-5 py-3 text-sm font-semibold text-white hover:bg-vibe-dark disabled:opacity-60"
           >
             <Crosshair className="h-4 w-4" aria-hidden="true" />
-            {status === "locating" ? "Finding you..." : "Use my current location"}
+            {status === "locating" ? "Finding you..." : location.source === "gps" ? "Update my location" : "Use my location"}
           </button>
           {message && (
             <p role="alert" className="text-sm font-semibold text-red-700">
               {message}
             </p>
           )}
-        </div>
-
-        <div className="space-y-3">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-ink-mute">Or choose your area</h3>
-          {TOWNS.map((town) => (
-            <div key={town} className="space-y-1.5">
-              <p className="text-sm font-bold">{town}</p>
-              <div className="flex flex-wrap gap-2">
-                {AREAS.filter((a) => a.town === town).map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    aria-pressed={location.areaId === a.id}
-                    onClick={() => {
-                      setArea(a.id);
-                      onClose();
-                    }}
-                    className={chip(location.areaId === a.id)}
-                  >
-                    {a.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
 
         <div className="space-y-2">

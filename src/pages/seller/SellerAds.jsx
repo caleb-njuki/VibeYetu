@@ -92,7 +92,6 @@ export default function SellerAds() {
   const [target, setTarget] = useState("shop");
   const [productId, setProductId] = useState("");
   const [days, setDays] = useState(7);
-  const [demoDelay, setDemoDelay] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(null); // { good, text }
   const [busy, setBusy] = useState(false);
@@ -175,7 +174,7 @@ export default function SellerAds() {
       createdAt: Date.now(),
       reports: [],
     };
-    const issue = demoDelay ? "Payment confirmation is delayed." : checkAd(ad, shop);
+    const issue = checkAd(ad, shop);
     createAd(ad, issue);
     // The photo now belongs to the ad, so it must not be cleaned up when the seller leaves the page.
     unsaved.current = null;
@@ -295,10 +294,6 @@ export default function SellerAds() {
           <Button type="submit" disabled={busy}>
             {busy ? "Processing payment..." : `Pay ${formatKES(total)} and go live`}
           </Button>
-          <label className="flex items-center gap-2 text-xs text-ink-mute">
-            <input type="checkbox" checked={demoDelay} onChange={(e) => setDemoDelay(e.target.checked)} className="accent-vibe" />
-            Demo only: pretend the payment confirmation is delayed
-          </label>
         </form>
 
         <div className="space-y-2">

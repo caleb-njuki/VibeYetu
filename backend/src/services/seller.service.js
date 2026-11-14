@@ -5,6 +5,8 @@ import { httpError } from '../utils/httpError.js';
 import { normalizePhone } from '../utils/phone.js';
 import { checkShopNameRules } from '../utils/shopName.js';
 import { encryptText } from '../utils/crypto.js';
+import { readPin } from '../utils/geo.js';
+import { clearFailures, lockedError, recordFailure } from '../utils/lockout.js';
 import { deleteImages, imageUrl, isOwnImage } from './cloudinary.service.js';
 
 export const TERMS_VERSION = '2026-10-30';
@@ -93,6 +95,7 @@ export function validateRegistration({ account, details, shop, consent }) {
   const nameCheck = checkShopNameRules(shop.name);
   if (!nameCheck.ok) return nameCheck.message;
   if (!String(shop.areaId || '').trim()) return 'Choose the area your shop is in.';
+  try { readPin(shop.lat, shop.lng, (m) => new Error(m)); } catch (e) { return e.message; }
   return '';
 }
 
@@ -153,6 +156,7 @@ export async function registerSeller(input) {
   const { sellerRow, shopId } = await inTransaction(async (client) => {
     const area = await client.query('SELECT id, lat, lng FROM areas WHERE id = $1', [String(shop.areaId).trim()]);
     if (!area.rows[0]) throw httpError(400, 'Choose the area your shop is in.');
+    const pin = readPin(shop.lat, shop.lng, (m) => httpError(400, m)) || area.rows[0]; // the exact pin when sent, otherwise the area centre
 
     const seller = await client.query(
       `INSERT INTO sellers
@@ -183,8 +187,8 @@ export async function registerSeller(input) {
         nameRules.name,
         nameRules.key,
         area.rows[0].id,
-        area.rows[0].lat,
-        area.rows[0].lng,
+        pin.lat,
+        pin.lng,
         String(shop.description || '').trim().slice(0, 300),
         phone,
       ]
@@ -202,13 +206,20 @@ export async function registerSeller(input) {
 export async function loginSeller(emailRaw, password) {
   const email = String(emailRaw || '').trim().toLowerCase();
   const { rows } = await pool.query(
-    'SELECT id, email, password_hash, full_name, phone FROM sellers WHERE email = $1',
+    'SELECT id, email, password_hash, full_name, phone, failed_logins, locked_until FROM sellers WHERE email = $1',
     [email]
   );
   const seller = rows[0];
   const valid = await bcrypt.compare(String(password || ''), seller ? seller.password_hash : await getDummyHash());
+  // A locked account refuses even the right password, so the lock cannot be used to test guesses.
+  const locked = lockedError(seller);
+  if (locked) throw locked;
   // The same message for a wrong email and a wrong password.
-  if (!seller || !valid) throw httpError(401, 'The email or password is not correct.');
+  if (!seller || !valid) {
+    if (seller) throw (await recordFailure('sellers', seller.id)) || httpError(401, 'The email or password is not correct.');
+    throw httpError(401, 'The email or password is not correct.');
+  }
+  await clearFailures('sellers', seller.id, seller);
 
   const shops = await listOwnShops(seller.id);
   if (!shops.length) {
@@ -224,7 +235,7 @@ export async function loginSeller(emailRaw, password) {
 }
 
 // ---- Open a branch ----
-export async function createShop(sellerId, { name, areaId, description }) {
+export async function createShop(sellerId, { name, areaId, description, lat, lng }) {
   const nameRules = checkShopNameRules(name);
   if (!nameRules.ok) throw httpError(400, nameRules.message);
 
@@ -243,6 +254,7 @@ export async function createShop(sellerId, { name, areaId, description }) {
 
     const area = await client.query('SELECT id, lat, lng FROM areas WHERE id = $1', [String(areaId || '').trim()]);
     if (!area.rows[0]) throw httpError(400, 'Choose the area your shop is in.');
+    const pin = readPin(lat, lng, (m) => httpError(400, m)) || area.rows[0];
 
     const created = await client.query(
       `INSERT INTO shops (seller_id, name, name_key, area_id, lat, lng, description, contact_phone)
@@ -253,8 +265,8 @@ export async function createShop(sellerId, { name, areaId, description }) {
         nameRules.name,
         nameRules.key,
         area.rows[0].id,
-        area.rows[0].lat,
-        area.rows[0].lng,
+        pin.lat,
+        pin.lng,
         String(description || '').trim().slice(0, 300),
         seller.rows[0].phone,
       ]
@@ -310,6 +322,8 @@ export async function updateShop(sellerId, shopId, changes) {
       next.lat = area.rows[0].lat;
       next.lng = area.rows[0].lng;
     }
+    const pin = readPin(changes.lat, changes.lng, (m) => httpError(400, m)); // an exact pin wins over the area centre
+    if (pin) { next.lat = pin.lat; next.lng = pin.lng; }
     if (changes.opens !== undefined) next.opens = changes.opens;
     if (changes.closes !== undefined) next.closes = changes.closes;
     if (!(next.opens < next.closes)) throw httpError(400, 'The closing time must be after the opening time.');

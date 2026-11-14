@@ -19,7 +19,8 @@ export async function resetPassword(sellerId, { password, confirm }) {
   const hash = await bcrypt.hash(pw, BCRYPT_COST);
   await withTransaction(async (c) => {
     await consumeVerified(c, sellerId, 'password', '');
-    await c.query('UPDATE sellers SET password_hash = $2 WHERE id = $1', [sellerId, hash]);
+    // token_version + 1 ends every login made with the old password. failed_logins is cleared too.
+    await c.query('UPDATE sellers SET password_hash = $2, token_version = token_version + 1, failed_logins = 0, locked_until = NULL WHERE id = $1', [sellerId, hash]);
     const shops = await c.query('SELECT id FROM shops WHERE seller_id = $1 AND closed_at IS NULL ORDER BY id', [sellerId]);
     for (const s of shops.rows) {
       await addShopNotice(s.id, 'Your password was changed. If this was not you, contact support now.', '/my-shop/settings', c);

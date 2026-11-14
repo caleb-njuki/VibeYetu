@@ -3,6 +3,7 @@
 // and then passwords are hashed on the server (bcrypt or argon2), never in the browser.
 import { shops as baseShops } from "../data/mock.js";
 import { findArea } from "./areas.js";
+import { inKenya } from "./geo.js";
 import { normalizePhone } from "./format.js";
 import { isClosed, isSuspended } from "./shopFlags.js";
 import { getShopSettings, saveShopSettings } from "./shopProfile.js";
@@ -163,7 +164,7 @@ export function validateDetailsStep(d) {
 }
 
 // ---- Opening a shop (the first shop at sign-up, or a branch later) ----
-export function createShop(ownerEmail, { name, areaId, description = "" }) {
+export function createShop(ownerEmail, { name, areaId, description = "", lat, lng }) {
   const email = normalizeEmail(ownerEmail);
   if (!shopIdsFor(email).length && !accounts().some((a) => a.email === email)) {
     return { ok: false, message: "Please sign in again." };
@@ -175,6 +176,7 @@ export function createShop(ownerEmail, { name, areaId, description = "" }) {
   if (!check.ok) return { ok: false, message: check.message };
   const area = findArea(areaId);
   if (!area) return { ok: false, message: "Choose the area your shop is in." };
+  if (!inKenya(lat, lng)) return { ok: false, message: "Place the pin on the map to show exactly where your shop is." };
 
   const shop = {
     id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -182,8 +184,8 @@ export function createShop(ownerEmail, { name, areaId, description = "" }) {
     areaId: area.id,
     area: area.name,
     town: area.town,
-    lat: area.lat,
-    lng: area.lng,
+    lat: Math.round(lat * 1e6) / 1e6,
+    lng: Math.round(lng * 1e6) / 1e6,
     opens: "08:00",
     closes: "18:00",
     verified: false,
@@ -237,6 +239,7 @@ export async function registerSeller({ account, details, shop, consent }) {
   const nameCheck = checkShopName(shop?.name);
   if (!nameCheck.ok) return fail(nameCheck.message);
   if (!findArea(shop?.areaId)) return fail("Choose the area your shop is in.");
+  if (!inKenya(shop?.lat, shop?.lng)) return fail("Place the pin on the map to show exactly where your shop is.");
 
   const email = normalizeEmail(account.email);
   const salt = newSalt();

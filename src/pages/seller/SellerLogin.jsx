@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import Button from "../../components/Button.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { DEMO_ACCOUNTS, DEMO_ENABLED, DEMO_PASSWORD, signInSeller } from "../../lib/sellers.js";
+import { signInSeller } from "../../lib/sellers.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-vibe";
 
 export default function SellerLogin() {
   const { seller, login } = useSeller();
   const navigate = useNavigate();
+  const notice = useLocation().state?.notice || "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -55,7 +56,16 @@ export default function SellerLogin() {
             Password
           </label>
           <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
+          <Link to="/my-shop/forgot-password" state={{ email: email.trim() }} className="inline-block text-sm font-semibold text-vibe hover:underline">
+            Forgot your password?
+          </Link>
         </div>
+
+        {notice && (
+          <p role="status" className="rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-900">
+            {notice}
+          </p>
+        )}
 
         {error && (
           <p role="alert" className="text-sm font-semibold text-red-700">
@@ -70,28 +80,6 @@ export default function SellerLogin() {
         <Link to="/my-shop/register" className="block text-center text-sm font-semibold text-vibe hover:underline">
           No shop yet? Open one
         </Link>
-
-        {DEMO_ENABLED && (
-          <div className="space-y-2 rounded-2xl bg-ivory-dark p-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-ink-mute">Demo shops (testing only)</p>
-            <div className="flex flex-wrap gap-2">
-              {DEMO_ACCOUNTS.map((d) => (
-                <button
-                  key={d.email}
-                  type="button"
-                  onClick={() => {
-                    setEmail(d.email);
-                    setPassword(DEMO_PASSWORD);
-                    setError("");
-                  }}
-                  className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold shadow-card hover:bg-vibe-light"
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </form>
     </div>
   );
