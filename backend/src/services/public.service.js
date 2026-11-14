@@ -3,6 +3,7 @@
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { toProduct } from './product.service.js';
+import { imageUrl } from './cloudinary.service.js';
 import { DISCOUNT_SQL, PRICE_NOW_SQL } from '../utils/offerSql.js';
 
 // ---- Pieces of SQL used by every query below ----
@@ -20,7 +21,7 @@ const SHOP_COLUMNS = `
   s.lat AS sh_lat, s.lng AS sh_lng,
   to_char(s.opens, 'HH24:MI') AS sh_opens, to_char(s.closes, 'HH24:MI') AS sh_closes,
   s.verified AS sh_verified, EXTRACT(YEAR FROM s.created_at)::int AS sh_since,
-  s.description AS sh_description, s.fulfillment AS sh_fulfillment, s.delivery_fee AS sh_delivery_fee,
+  s.photo AS sh_photo, s.description AS sh_description, s.fulfillment AS sh_fulfillment, s.delivery_fee AS sh_delivery_fee,
   -- Open or closed is worked out in Kenya time (the server may run in another time zone).
   ((now() AT TIME ZONE 'Africa/Nairobi')::time >= s.opens
     AND (now() AT TIME ZONE 'Africa/Nairobi')::time < s.closes) AS sh_open_now`;
@@ -79,6 +80,7 @@ function toShop(row) {
     rating: row.sh_stars_count ? row.sh_stars_sum / row.sh_stars_count : 0,
     reviews: row.sh_stars_count,
     since: row.sh_since,
+    photo: row.sh_photo ? { id: row.sh_photo, url: imageUrl(row.sh_photo, 400), thumb: imageUrl(row.sh_photo, 120) } : null,
     description: row.sh_description,
     fulfillment: row.sh_fulfillment,
     deliveryFee: row.sh_delivery_fee, // null until the seller sets it: then buyers cannot choose delivery
