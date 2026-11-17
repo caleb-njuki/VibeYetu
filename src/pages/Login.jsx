@@ -4,7 +4,6 @@ import { ShieldCheck } from "lucide-react";
 import Button from "../components/Button.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { requestOtp, verifyOtp } from "../services/api.js";
-import { localPhone, normalizePhone } from "../lib/format.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-vibe";
 
@@ -14,8 +13,8 @@ export default function Login() {
   const location = useLocation();
   const from = location.state?.from || "/";
 
-  const [step, setStep] = useState("phone");
-  const [phoneInput, setPhoneInput] = useState("");
+  const [step, setStep] = useState("email");
+  const [emailInput, setEmailInput] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -32,12 +31,12 @@ export default function Login() {
     return () => clearTimeout(id);
   }, [step, seconds]);
 
-  const phone = normalizePhone(phoneInput);
+  const email = emailInput.trim().toLowerCase();
 
   async function sendCode(e) {
     e?.preventDefault();
-    if (!phone) {
-      setError("Enter a valid Kenyan number, for example 0712 345 678.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Enter a valid email address.");
       return;
     }
     if (!agreed) {
@@ -47,12 +46,12 @@ export default function Login() {
     setError("");
     setBusy(true);
     try {
-      await requestOtp(phone);
+      await requestOtp(email);
       setStep("code");
       setCode("");
       setSeconds(30);
-    } catch {
-      setError("We could not send the code. Please try again.");
+    } catch (err) {
+      setError(err.message || "We could not send the code. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -67,8 +66,8 @@ export default function Login() {
     setError("");
     setBusy(true);
     try {
-      await verifyOtp(phone, code);
-      login({ phone, termsAcceptedAt: Date.now() });
+      const data = await verifyOtp(email, code);
+      login({ id: data.buyer.id, email, termsAcceptedAt: Date.now() }, data.token);
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
       setBusy(false);
@@ -79,28 +78,28 @@ export default function Login() {
     <div className="mx-auto max-w-md px-4 py-12">
       <div className="space-y-6 rounded-3xl bg-white p-6 shadow-card sm:p-8">
         <div className="space-y-1">
-          <h1 className="text-2xl font-extrabold">{step === "phone" ? "Sign in or sign up" : "Enter your code"}</h1>
+          <h1 className="text-2xl font-extrabold">{step === "email" ? "Sign in or sign up" : "Enter your code"}</h1>
           <p className="text-sm text-ink-mute">
-            {step === "phone"
-              ? "Use your phone number. We will send you a one-time code."
-              : `We sent a 6-digit code to ${localPhone(phone)}.`}
+            {step === "email"
+              ? "Use your email address. We will send you a one-time code."
+              : `We emailed a 6-digit code to ${email}. Check your inbox and spam folder.`}
           </p>
         </div>
 
-        {step === "phone" ? (
+        {step === "email" ? (
           <form onSubmit={sendCode} className="space-y-4" noValidate>
             <div className="space-y-1.5">
-              <label htmlFor="phone" className="text-sm font-semibold">
-                Phone number
+              <label htmlFor="email" className="text-sm font-semibold">
+                Email address
               </label>
               <input
-                id="phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="0712 345 678"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
+                id="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
                 className={inputCls}
               />
             </div>
@@ -134,15 +133,11 @@ export default function Login() {
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 maxLength={6}
-                placeholder="123456"
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                 className={`${inputCls} text-center text-xl font-bold tracking-[0.5em]`}
               />
             </div>
-            <p className="rounded-xl bg-vibe-light px-3 py-2 text-xs text-vibe-dark">
-              Demo mode: use the code 123456.
-            </p>
             {error && (
               <p role="alert" className="text-sm font-semibold text-red-700">
                 {error}
@@ -155,12 +150,12 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => {
-                  setStep("phone");
+                  setStep("email");
                   setError("");
                 }}
                 className="font-semibold text-vibe hover:underline"
               >
-                Change number
+                Change email
               </button>
               <button
                 type="button"

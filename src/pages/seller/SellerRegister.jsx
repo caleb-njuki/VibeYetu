@@ -5,8 +5,8 @@ import Button from "../../components/Button.jsx";
 import PinPicker from "../../components/PinPicker.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { AREAS, TOWNS } from "../../lib/areas.js";
-import { checkShopName, registerSeller, validateAccountStep, validateDetailsStep } from "../../lib/sellers.js";
+import { sendEmailCode, checkEmailCode } from "../../services/sellerApi.js";
+import { checkShopName, normalizeEmail, registerSeller, validateAccountStep, validateDetailsStep } from "../../lib/sellers.js";
 import { FEE_LABEL } from "../../lib/fees.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
@@ -32,7 +32,30 @@ export default function SellerRegister() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  // The email must be proved with a code we send to it, before the account can be made.
   const [account, setAccount] = useState({ email: "", password: "", confirm: "" });
+  const [mail, setMail] = useState({ sent: false, code: "", proof: "", proofFor: "", wait: 0 });
+  const mailNow = normalizeEmail(account.email);
+  const mailOk = Boolean(mail.proof) && mail.proofFor === mailNow;
+
+  useEffect(() => {
+    if (mail.wait <= 0) return undefined;
+    const t = setTimeout(() => setMail((m) => ({ ...m, wait: m.wait - 1 })), 1000);
+    return () => clearTimeout(t);
+  }, [mail.wait]);
+
+  async function sendCode() {
+    setBusy(true);
+    setError("");
+    try {
+      const data = await sendEmailCode(mailNow);
+      setMail((m) => ({ ...m, sent: true, code: "", wait: Math.round((data.resendInMs || 30000) / 1000) }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const [details, setDetails] = useState({
     fullName: "",
     idNumber: "",
@@ -42,7 +65,7 @@ export default function SellerRegister() {
     businessName: "",
     businessRegNo: "",
   });
-  const [shop, setShop] = useState({ name: "", areaId: "", description: "", lat: null, lng: null });
+  const [shop, setShop] = useState({ name: "", description: "", lat: null, lng: null, placeName: "", placeTown: "" });
   const [consent, setConsent] = useState({ terms: false, data: false, accurate: false });
 
   // Someone who is already signed in goes to their shop, except right after registering.
@@ -62,7 +85,20 @@ export default function SellerRegister() {
       const problem = validateAccountStep(account);
       if (problem) return setError(problem);
       setError("");
-      return setStep(1);
+      if (mailOk) return setStep(1);
+      if (!mail.sent) return sendCode();
+      if (mail.code.trim().length !== 6) return setError("Enter the 6-digit code we emailed you.");
+      setBusy(true);
+      try {
+        const data = await checkEmailCode(mailNow, mail.code.trim());
+        setMail((m) => ({ ...m, proof: data.proof, proofFor: mailNow }));
+        setStep(1);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setBusy(false);
+      }
+      return undefined;
     }
     if (step === 1) {
       const problem = validateDetailsStep(details);
@@ -73,20 +109,19 @@ export default function SellerRegister() {
 
     const name = checkShopName(shop.name);
     if (!name.ok) return setError(name.message);
-    if (!shop.areaId) return setError("Choose the area your shop is in.");
     if (shop.lat === null) return setError("Place the pin on the map to show exactly where your shop is.");
     if (!consent.terms || !consent.data || !consent.accurate) return setError("Please tick all three agreements to continue.");
 
     setBusy(true);
     setError("");
     try {
-      const result = await registerSeller({ account, details, shop, consent });
+      const result = await registerSeller({ account: { ...account, emailProof: mail.proof }, details, shop, consent });
       if (!result.ok) {
         setError(result.message);
         return;
       }
       finished.current = true;
-      login(result.seller);
+      login(result.session);
       navigate("/my-shop/settings", { replace: true });
     } catch {
       setError("Something went wrong. Please try again.");
@@ -120,8 +155,37 @@ export default function SellerRegister() {
         {step === 0 && (
           <>
             <Field id="r-email" label="Email">
-              <input id="r-email" type="email" autoComplete="email" value={account.email} onChange={setA("email")} className={inputCls} />
+              <input
+                id="r-email"
+                type="email"
+                autoComplete="email"
+                value={account.email}
+                onChange={(e) => {
+                  setA("email")(e);
+                  setMail((m) => ({ ...m, sent: false, code: "" }));
+                }}
+                className={inputCls}
+              />
             </Field>
+            {mailOk && <p className="text-xs font-semibold text-green-800">Email verified.</p>}
+            {!mailOk && mail.sent && (
+              <Field id="r-mailcode" label="Code from your email" why={`We sent a 6-digit code to ${mailNow}. Check your inbox and spam folder.`}>
+                <div className="flex gap-2">
+                  <input
+                    id="r-mailcode"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={mail.code}
+                    onChange={(e) => setMail((m) => ({ ...m, code: e.target.value.replace(/\D/g, "") }))}
+                    className={inputCls}
+                  />
+                  <Button variant="outline" onClick={sendCode} disabled={busy || mail.wait > 0}>
+                    {mail.wait > 0 ? `${mail.wait}s` : "Send again"}
+                  </Button>
+                </div>
+              </Field>
+            )}
             <Field id="r-password" label="Password" why="At least 8 characters.">
               <div className="relative">
                 <input
@@ -226,22 +290,11 @@ export default function SellerRegister() {
 
         {step === 2 && (
           <>
-            <ShopNameField id="r-shop" value={shop.name} onChange={(name) => setShop((s) => ({ ...s, name }))} areaId={shop.areaId} />
-            <Field id="r-area" label="Which area is your shop in?" why="Shown to buyers as the name of the place.">
-              <select id="r-area" value={shop.areaId} onChange={(e) => setShop((s) => ({ ...s, areaId: e.target.value, lat: null, lng: null }))} className={inputCls}>
-                <option value="">Choose your area</option>
-                {TOWNS.map((town) => (
-                  <optgroup key={town} label={town}>
-                    {AREAS.filter((a) => a.town === town).map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </Field>
-            <PinPicker value={shop.lat === null ? null : { lat: shop.lat, lng: shop.lng }} areaId={shop.areaId} onChange={(p) => setShop((s) => ({ ...s, lat: p.lat, lng: p.lng }))} />
+            <ShopNameField id="r-shop" value={shop.name} onChange={(name) => setShop((s) => ({ ...s, name }))} place={shop.placeName} />
+            <PinPicker
+              value={shop.lat === null ? null : { lat: shop.lat, lng: shop.lng, placeName: shop.placeName, placeTown: shop.placeTown }}
+              onChange={(p) => setShop((s) => ({ ...s, lat: p.lat, lng: p.lng, placeName: p.placeName || "", placeTown: p.placeTown || "" }))}
+            />
             <Field id="r-desc" label="About your shop (optional)">
               <textarea
                 id="r-desc"
@@ -308,7 +361,7 @@ export default function SellerRegister() {
             </Button>
           )}
           <Button type="submit" size="lg" className="flex-1" disabled={busy}>
-            {step < 2 ? "Continue" : busy ? "Creating your shop..." : "Create my shop"}
+            {step === 0 ? (mailOk ? "Continue" : mail.sent ? "Verify and continue" : "Send me a code") : step === 1 ? "Continue" : busy ? "Creating your shop..." : "Create my shop"}
           </Button>
         </div>
 

@@ -1,14 +1,31 @@
+import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
-import { checkShopName, suggestShopNames } from "../lib/sellers.js";
+import { checkShopName, checkShopNameFree, suggestShopNames } from "../lib/sellers.js";
 
 // A shop name box that checks the name as the seller types.
 // The shop name works like a username, so it must be unique. When a name is taken
 // the field suggests ways to make it unique, for example by adding the town.
-export default function ShopNameField({ id = "shop-name", label = "Shop name", value, onChange, areaId = "", ignoreShopId, hint }) {
+export default function ShopNameField({ id = "shop-name", label = "Shop name", value, onChange, place = "", ignoreShopId, hint }) {
   const text = String(value || "");
   const typed = text.trim().length >= 3;
-  const check = typed ? checkShopName(text, { ignoreShopId }) : null;
-  const suggestions = check && !check.ok && check.taken ? suggestShopNames(text, areaId) : [];
+  const local = typed ? checkShopName(text) : null;
+  // The server decides if a name is taken. It is asked half a second after the seller stops typing.
+  const [remote, setRemote] = useState({ text: "", result: null });
+  useEffect(() => {
+    if (!typed || !local?.ok) return undefined;
+    let live = true;
+    const timer = setTimeout(() => {
+      checkShopNameFree(text, { ignoreShopId }).then((result) => {
+        if (live) setRemote({ text, result });
+      });
+    }, 500);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [text, typed, local?.ok, ignoreShopId]);
+  const check = !local ? null : !local.ok ? local : remote.text === text ? remote.result : null;
+  const suggestions = check && !check.ok && check.taken ? suggestShopNames(text, place) : [];
   const border = !check ? "border-ink/20" : check.ok ? "border-green-600" : "border-red-600";
 
   return (

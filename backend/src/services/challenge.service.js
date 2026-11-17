@@ -1,14 +1,14 @@
 // One-time codes (OTP) for sensitive seller changes: the payout method and the password.
-// The code goes by SMS to the phone the seller signed up with, so someone using an open session
-// cannot send it to their own phone. Steps: request a code, verify it, then save the change.
+// The code goes by email to the address the seller signed up with, so someone using an open session
+// cannot send it to their own email. Steps: request a code, verify it, then save the change.
 // Saving only works right after a code was accepted, and only once.
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { pool } from '../config/db.js';
 import { config } from '../config/env.js';
 import { httpError } from '../utils/httpError.js';
-import { maskPhone } from '../utils/phoneMask.js';
+import { maskEmail } from '../utils/emailMask.js';
 import { withTransaction } from '../utils/transaction.js';
-import { sendSms } from './sms.service.js';
+import { sendEmail } from './email.service.js';
 
 export const OTP_LENGTH = 6;
 export const OTP_TTL_SECONDS = 300; // a code works for 5 minutes
@@ -45,10 +45,10 @@ async function limitRow(c, purpose, sellerId, subject) {
   )).rows[0];
 }
 
-// Sends a new code. Returns the masked phone it went to.
+// Sends a new code by email. Returns the masked email it went to.
 export async function requestCode(sellerId, purpose, subject = '') {
-  const seller = (await pool.query('SELECT phone FROM sellers WHERE id = $1', [sellerId])).rows[0];
-  if (!seller?.phone) throw httpError(409, 'We have no phone number to send the code to. Contact support.');
+  const seller = (await pool.query('SELECT email FROM sellers WHERE id = $1', [sellerId])).rows[0];
+  if (!seller?.email) throw httpError(409, 'We have no email address to send the code to. Contact support.');
 
   const code = String(randomInt(0, 10 ** OTP_LENGTH)).padStart(OTP_LENGTH, '0');
   await withTransaction(async (c) => {
@@ -73,13 +73,13 @@ export async function requestCode(sellerId, purpose, subject = '') {
   });
 
   try {
-    await sendSms(seller.phone, `Your VibeYetu code for a ${WHAT[purpose]} is ${code}. It expires in ${OTP_TTL_SECONDS / 60} minutes. Never share it. If you did not ask for it, ignore this message.`);
+    await sendEmail(seller.email, `Your VibeYetu code for a ${WHAT[purpose]}`, `Your VibeYetu code for a ${WHAT[purpose]} is ${code}. It expires in ${OTP_TTL_SECONDS / 60} minutes. Never share it. If you did not ask for it, ignore this email.`);
   } catch (err) {
-    // The SMS did not go out: the code is useless, so the seller may try again straight away.
+    // The email did not go out: the code is useless, so the seller may try again straight away.
     await pool.query('UPDATE seller_challenges SET used_at = now(), created_at = created_at - interval \'1 hour\' WHERE purpose = $1 AND seller_id = $2 AND subject = $3 AND used_at IS NULL', [purpose, sellerId, subject]);
     throw err;
   }
-  return { phone: maskPhone(seller.phone), resendInMs: RESEND_SECONDS * 1000 };
+  return { sentTo: maskEmail(seller.email), resendInMs: RESEND_SECONDS * 1000 };
 }
 
 // Checks a code. Wrong codes count across codes; too many lock the change for 10 minutes.

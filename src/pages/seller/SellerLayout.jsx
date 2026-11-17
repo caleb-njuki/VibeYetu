@@ -5,7 +5,7 @@ import Logo from "../../components/Logo.jsx";
 import NotificationBell from "../../components/NotificationBell.jsx";
 import SuspensionBanner from "../../components/SuspensionBanner.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { SHOPS_CHANGED, ownedShops } from "../../lib/sellers.js";
+import { SHOPS_CHANGED } from "../../lib/sellers.js";
 
 const tab = ({ isActive }) =>
   `rounded-full px-4 py-2 text-sm font-semibold ${isActive ? "bg-ink text-white" : "text-ink hover:bg-ink/5"}`;
@@ -28,7 +28,7 @@ export default function SellerLayout() {
 
   if (!seller) return <Navigate to="/my-shop/login" replace />;
 
-  const branches = ownedShops(seller.email);
+  const branches = seller.shops;
   const current = branches.find((b) => b.id === seller.shopId);
 
   function onSwitch(e) {

@@ -16,18 +16,20 @@ const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Enter a time like 08
 
 const createSchema = z.object({
   name: z.string(),
-  areaId: z.string(),
   description: z.string().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
+  placeName: z.string().optional(), // the place the map gave for the pin, for example Westlands
+  placeTown: z.string().optional(),
 });
 
 const updateSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
-  areaId: z.string().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
+  placeName: z.string().optional(),
+  placeTown: z.string().optional(),
   opens: time.optional(),
   closes: time.optional(),
   fulfillment: z.array(z.enum(['delivery', 'pickup'])).optional(),

@@ -1,11 +1,10 @@
-// Buyer login: phone + one-time code, then a JWT.
-//   POST /api/auth/buyer/request-otp   { "phone": "0712345678" }
-//   POST /api/auth/buyer/verify-otp    { "phone": "0712345678", "code": "123456" }
+// Buyer login: email + one-time code (sent by email), then a JWT.
+//   POST /api/auth/buyer/request-otp   { "email": "amina@example.com" }
+//   POST /api/auth/buyer/verify-otp    { "email": "amina@example.com", "code": "123456" }
 //   GET  /api/auth/buyer/me            (needs the token)
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { normalizePhone } from '../utils/phone.js';
 import { requestOtp, verifyOtp } from '../services/otp.service.js';
 import { signBuyerToken, requireBuyer } from '../middleware/auth.js';
 
@@ -32,9 +31,9 @@ function badRequest(message) {
   return err;
 }
 
-const requestSchema = z.object({ phone: z.string() });
+const requestSchema = z.object({ email: z.string() });
 const verifySchema = z.object({
-  phone: z.string(),
+  email: z.string(),
   code: z.string().trim().regex(/^\d{6}$/),
 });
 
@@ -42,19 +41,19 @@ function readBody(schema, req) {
   const parsed = schema.safeParse(req.body ?? {});
   if (!parsed.success) {
     const field = parsed.error.issues[0].path[0];
-    throw badRequest(field === 'code' ? 'Enter the 6-digit code.' : 'Enter a valid phone number.');
+    throw badRequest(field === 'code' ? 'Enter the 6-digit code.' : 'Enter a valid email address.');
   }
-  const phone = normalizePhone(parsed.data.phone);
-  if (!phone) throw badRequest('Enter a valid phone number.');
-  return { ...parsed.data, phone };
+  const email = parsed.data.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw badRequest('Enter a valid email address.');
+  return { ...parsed.data, email };
 }
 
 router.post(
   '/request-otp',
   limiter(10, 'Too many code requests. Please try again later.'),
   handle(async (req, res) => {
-    const { phone } = readBody(requestSchema, req);
-    const { expiresInSeconds } = await requestOtp(phone);
+    const { email } = readBody(requestSchema, req);
+    const { expiresInSeconds } = await requestOtp(email);
     res.json({ message: 'Code sent.', expiresInSeconds });
   })
 );
@@ -63,12 +62,12 @@ router.post(
   '/verify-otp',
   limiter(20, 'Too many tries. Please try again later.'),
   handle(async (req, res) => {
-    const { phone, code } = readBody(verifySchema, req);
-    const buyer = await verifyOtp(phone, code);
+    const { email, code } = readBody(verifySchema, req);
+    const buyer = await verifyOtp(email, code);
     res.json({
       token: signBuyerToken(buyer),
       isNewBuyer: buyer.isNew,
-      buyer: { id: buyer.id, phone: buyer.phone },
+      buyer: { id: buyer.id, email: buyer.email },
     });
   })
 );
@@ -77,7 +76,7 @@ router.get('/me', requireBuyer, (req, res) => {
   res.json({
     buyer: {
       id: req.buyer.id,
-      phone: req.buyer.phone,
+      email: req.buyer.email,
       createdAt: req.buyer.created_at,
     },
   });

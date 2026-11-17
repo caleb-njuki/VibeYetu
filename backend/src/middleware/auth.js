@@ -35,7 +35,7 @@ export async function requireBuyer(req, res, next) {
     }
 
     const { rows } = await pool.query(
-      'SELECT id, phone, created_at FROM buyers WHERE id = $1',
+      'SELECT id, email, created_at FROM buyers WHERE id = $1',
       [payload.sub]
     );
     if (!rows[0]) throw unauthorized();

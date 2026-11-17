@@ -17,7 +17,7 @@ const PRODUCT_COLUMNS = `
   ${DISCOUNT_SQL} AS discount_percent, ${PRICE_NOW_SQL} AS price_now`;
 
 const SHOP_COLUMNS = `
-  s.name AS sh_name, s.stars_sum AS sh_stars_sum, s.stars_count AS sh_stars_count, s.area_id AS sh_area_id, a.name AS sh_area, a.town AS sh_town,
+  s.name AS sh_name, s.stars_sum AS sh_stars_sum, s.stars_count AS sh_stars_count, s.area_id AS sh_area_id, COALESCE(s.place_name, a.name) AS sh_area, COALESCE(s.place_town, a.town) AS sh_town,
   s.lat AS sh_lat, s.lng AS sh_lng,
   to_char(s.opens, 'HH24:MI') AS sh_opens, to_char(s.closes, 'HH24:MI') AS sh_closes,
   s.verified AS sh_verified, EXTRACT(YEAR FROM s.created_at)::int AS sh_since,

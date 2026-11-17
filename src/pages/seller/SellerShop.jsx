@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import CloseShopFlow from "../../components/CloseShopFlow.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { MAX_SHOPS_PER_SELLER, SHOPS_CHANGED, ownedShops } from "../../lib/sellers.js";
+import { MAX_SHOPS_PER_SELLER, SHOPS_CHANGED } from "../../lib/sellers.js";
 
 // The "Shop" tab of My Shop: the seller's shops and branches, adding a branch and closing a shop.
 export default function SellerShop() {
@@ -18,7 +18,7 @@ export default function SellerShop() {
     return () => window.removeEventListener(SHOPS_CHANGED, bump);
   }, []);
 
-  const mine = ownedShops(seller.email);
+  const mine = seller.shops;
   const current = mine.find((s) => s.id === seller.shopId);
   const full = mine.length >= MAX_SHOPS_PER_SELLER;
 

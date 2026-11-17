@@ -5,55 +5,52 @@ import Button from "../../components/Button.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
 import PinPicker from "../../components/PinPicker.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
-import { deleteImage } from "../../lib/images.js";
-import { getPayout } from "../../lib/payouts.js";
-import { getDeliveryFee } from "../../lib/delivery.js";
+import { imageId } from "../../lib/images.js";
+import { getPayout, updateShop } from "../../services/sellerApi.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { AREAS, TOWNS, findArea } from "../../lib/areas.js";
-import { getShopSettings, saveShopSettings } from "../../lib/shopProfile.js";
-import { SHOPS_CHANGED, checkShopName } from "../../lib/sellers.js";
+import { checkShopNameFree } from "../../lib/sellers.js";
 import { localPhone, normalizePhone } from "../../lib/format.js";
-import { getShop } from "../../services/api.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
 
 export default function SellerSettings() {
-  const { seller } = useSeller();
-  const [shop, setShop] = useState(null);
+  const { seller, shop, patchShop } = useSeller();
   const [form, setForm] = useState(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  // Both are set on the Payments tab, so they are read again each time this page opens.
-  const payout = getPayout(seller.shopId);
-  const deliveryFee = getDeliveryFee(seller.shopId);
+  const [busy, setBusy] = useState(false);
+  // Both are set on the Payments tab. The fee is part of the shop; the payout is asked from the server.
+  const [payout, setPayout] = useState(null);
+  const deliveryFee = shop?.deliveryFee ?? null;
 
   useEffect(() => {
     let live = true;
-    setForm(null);
-    setSaved(false);
-    setError("");
-    getShop(seller.shopId)
-      .then((s) => {
-        if (!live || !s) return;
-        const priv = getShopSettings(seller.shopId).private;
-        setShop(s);
-        setForm({
-          name: s.name,
-          description: s.description || "",
-          photo: s.photo ? [s.photo] : [],
-          areaId: s.areaId || "",
-          pin: typeof s.lat === "number" && typeof s.lng === "number" ? { lat: s.lat, lng: s.lng } : null,
-          opens: s.opens || "08:00",
-          closes: s.closes || "18:00",
-          delivery: s.fulfillment.includes("delivery"),
-          pickup: s.fulfillment.includes("pickup"),
-          phone: priv.phone ? localPhone(priv.phone) : "",
-        });
-      })
+    getPayout(seller.shopId)
+      .then((d) => live && setPayout(d.payout || null))
       .catch(() => {});
     return () => {
       live = false;
     };
+  }, [seller.shopId]);
+
+  useEffect(() => {
+    const s = shop;
+    setSaved(false);
+    setError("");
+    if (!s) return;
+    setForm({
+      name: s.name,
+      description: s.description || "",
+      photo: s.photo ? [s.photo] : [],
+      pin: typeof s.lat === "number" && typeof s.lng === "number" ? { lat: s.lat, lng: s.lng, placeName: s.area || "", placeTown: s.town || "" } : null,
+      opens: s.opens || "08:00",
+      closes: s.closes || "18:00",
+      delivery: (s.fulfillment || []).includes("delivery"),
+      pickup: (s.fulfillment || []).includes("pickup"),
+      phone: s.contactPhone ? localPhone(s.contactPhone) : "",
+    });
+    // Only when the shop being edited changes, not after each save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seller.shopId]);
 
   if (!form) return <div className="h-64 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />;
@@ -70,7 +67,7 @@ export default function SellerSettings() {
   const checklist = [
     ["A shop photo", form.photo.length > 0],
     ["A shop description of at least 20 characters", form.description.trim().length >= 20],
-    ["Your shop's area and a pin on the map, so nearby buyers find you", Boolean(findArea(form.areaId)) && Boolean(form.pin)],
+    ["A pin on the map, so nearby buyers find you", Boolean(form.pin)],
     ["Opening hours", form.opens < form.closes],
     ["Delivery or pickup chosen", form.delivery || form.pickup],
     ["A contact phone number", Boolean(normalizePhone(form.phone))],
@@ -79,40 +76,40 @@ export default function SellerSettings() {
   ];
   const done = checklist.filter(([, ok]) => ok).length;
 
-  function save(e) {
+  async function save(e) {
     e.preventDefault();
-    const area = findArea(form.areaId);
-    const nameCheck = checkShopName(form.name, { ignoreShopId: seller.shopId });
+    if (busy) return;
+    const nameCheck = await checkShopNameFree(form.name, { ignoreShopId: seller.shopId });
     if (!nameCheck.ok) return setError(nameCheck.message);
-    if (!area) return setError("Choose the area your shop is in.");
     if (!form.pin) return setError("Place the pin on the map to show exactly where your shop is.");
     if (!(form.opens < form.closes)) return setError("The closing time must be after the opening time.");
     if (!form.delivery && !form.pickup) return setError("Choose delivery, pickup or both.");
     const phone = form.phone.trim() ? normalizePhone(form.phone) : "";
     if (form.phone.trim() && !phone) return setError("Enter a valid contact number, for example 0712 345 678.");
-    saveShopSettings(seller.shopId, {
-      public: {
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await updateShop(seller.shopId, {
         name: nameCheck.name,
         description: form.description.trim(),
-        photo: form.photo[0] || "",
-        areaId: area.id,
-        area: area.name,
-        town: area.town,
+        photo: form.photo[0] ? imageId(form.photo[0]) : null,
+        placeName: form.pin.placeName || "",
+        placeTown: form.pin.placeTown || "",
         lat: Math.round(form.pin.lat * 1e6) / 1e6,
         lng: Math.round(form.pin.lng * 1e6) / 1e6,
         opens: form.opens,
         closes: form.closes,
         fulfillment: [form.delivery && "delivery", form.pickup && "pickup"].filter(Boolean),
-      },
-      // Keep the other private fields. Payout details are changed in their own box, with a code.
-      private: { ...getShopSettings(seller.shopId).private, phone },
-    });
-    if (shop.photo && shop.photo !== form.photo[0]) deleteImage(shop.photo);
-    setShop((s) => ({ ...s, areaId: area.id, photo: form.photo[0] || "" }));
-    setForm((f) => ({ ...f, name: nameCheck.name }));
-    window.dispatchEvent(new Event(SHOPS_CHANGED));
-    setError("");
-    setSaved(true);
+        ...(phone ? { phone } : {}),
+      });
+      patchShop(updated);
+      setForm((f) => ({ ...f, name: nameCheck.name }));
+      setSaved(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -158,7 +155,7 @@ export default function SellerSettings() {
         <ShopNameField
           id="s-name"
           value={form.name}
-          areaId={form.areaId}
+          place={form.pin?.placeName || ""}
           ignoreShopId={seller.shopId}
           onChange={(name) => {
             setSaved(false);
@@ -173,25 +170,7 @@ export default function SellerSettings() {
           <textarea id="s-desc" rows={3} value={form.description} onChange={set("description")} className={inputCls} />
         </div>
 
-        <div className="space-y-1.5">
-          <label htmlFor="s-area" className="text-sm font-semibold">
-            Which area is your shop in?
-          </label>
-          <select id="s-area" value={form.areaId} onChange={(e) => { setSaved(false); setForm((f) => ({ ...f, areaId: e.target.value, pin: null })); }} className={inputCls}>
-            <option value="">Choose your area</option>
-            {TOWNS.map((town) => (
-              <optgroup key={town} label={town}>
-                {AREAS.filter((a) => a.town === town).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <p className="text-xs text-ink-mute">Shown to buyers as the name of the place. If you change it, place the pin again.</p>
-        </div>
-        <PinPicker value={form.pin} areaId={form.areaId} onChange={(p) => { setSaved(false); setForm((f) => ({ ...f, pin: p })); }} />
+        <PinPicker value={form.pin} onChange={(p) => { setSaved(false); setForm((f) => ({ ...f, pin: p })); }} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -248,7 +227,7 @@ export default function SellerSettings() {
             Settings saved.
           </p>
         )}
-        <Button type="submit">Save settings</Button>
+        <Button type="submit" disabled={busy}>{busy ? "Saving..." : "Save settings"}</Button>
       </form>
 
       <section className="space-y-2 rounded-2xl bg-white p-5 shadow-card" aria-labelledby="pay-title">

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Button from "../../components/Button.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
-import { deleteImage } from "../../lib/images.js";
+import { imageId } from "../../lib/images.js";
 import { SIZE_TYPES, cleanSizes, formatSize, isSizeType, sizesFor, totalStock } from "../../lib/sizes.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
@@ -66,21 +66,15 @@ export default function SellerProductForm({ product, categories, onSave, onCance
       emoji: cat.emoji,
       hue: product?.hue ?? hueFor(name.trim()),
       description: description.trim() || "No description yet.",
-      images,
+      images: images.map(imageId),
     });
     if (result && !result.ok) {
       setError(result.message);
       setBusy(false);
-    } else {
-      // Photos the seller removed are no longer needed.
-      (product?.images || []).filter((id) => !images.includes(id)).forEach(deleteImage);
     }
   }
 
   function cancel() {
-    // Photos added in this form but never saved are not needed.
-    const original = product?.images || [];
-    images.filter((id) => !original.includes(id)).forEach(deleteImage);
     onCancel();
   }
 

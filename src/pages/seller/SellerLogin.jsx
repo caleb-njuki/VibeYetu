@@ -29,9 +29,7 @@ export default function SellerLogin() {
     try {
       const result = await signInSeller(email, password);
       if (!result.ok) return setError(result.message);
-      login(result.seller);
-    } catch {
-      setError("Something went wrong. Please try again.");
+      login(result.session);
     } finally {
       setBusy(false);
     }

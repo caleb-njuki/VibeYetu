@@ -1,13 +1,13 @@
-// One-time codes for buyer login: create + send a code, then check it.
+// One-time codes for buyer login: create + email a code, then check it.
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { pool } from '../config/db.js';
 import { config } from '../config/env.js';
-import { sendSms } from './sms.service.js';
+import { sendEmail } from './email.service.js';
 
 const OTP_TTL_SECONDS = 300; // a code works for 5 minutes
 const MAX_ATTEMPTS = 5; // wrong guesses allowed per code
 const RESEND_COOLDOWN_SECONDS = 60; // wait between two code requests
-const MAX_REQUESTS_PER_HOUR = 5; // codes per phone per hour
+const MAX_REQUESTS_PER_HOUR = 5; // codes per email per hour
 
 function httpError(status, message) {
   const err = new Error(message);
@@ -16,9 +16,9 @@ function httpError(status, message) {
 }
 
 // Only a hash of the code is stored, never the code itself.
-function hashCode(phone, code) {
+function hashCode(email, code) {
   return createHmac('sha256', config.jwt.secret)
-    .update(`${phone}:${code}`)
+    .update(`${email}:${code}`)
     .digest('hex');
 }
 
@@ -28,21 +28,21 @@ function sameHash(a, b) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-// Creates a new code for this phone and sends it by SMS.
-export async function requestOtp(phone) {
+// Creates a new code for this email and sends it by email.
+export async function requestOtp(email) {
   const code = String(randomInt(0, 1000000)).padStart(6, '0');
   let otpId;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Stops two requests for the same phone from running at the same moment.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [phone]);
+    // Stops two requests for the same email from running at the same moment.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [email]);
 
     await client.query(
       `DELETE FROM otp_codes
-       WHERE phone = $1 AND created_at < now() - interval '1 day'`,
-      [phone]
+       WHERE email = $1 AND created_at < now() - interval '1 day'`,
+      [email]
     );
 
     const { rows } = await client.query(
@@ -51,8 +51,8 @@ export async function requestOtp(phone) {
          GREATEST(0, CEIL(EXTRACT(EPOCH FROM
            (MAX(created_at) + make_interval(secs => $2) - now()))))::int AS wait_seconds
        FROM otp_codes
-       WHERE phone = $1`,
-      [phone, RESEND_COOLDOWN_SECONDS]
+       WHERE email = $1`,
+      [email, RESEND_COOLDOWN_SECONDS]
     );
     const { last_hour: lastHour, wait_seconds: waitSeconds } = rows[0];
 
@@ -68,14 +68,14 @@ export async function requestOtp(phone) {
 
     // Older unused codes stop working as soon as a new one is made.
     await client.query(
-      'UPDATE otp_codes SET used_at = now() WHERE phone = $1 AND used_at IS NULL',
-      [phone]
+      'UPDATE otp_codes SET used_at = now() WHERE email = $1 AND used_at IS NULL',
+      [email]
     );
     const inserted = await client.query(
-      `INSERT INTO otp_codes (phone, code_hash, expires_at)
+      `INSERT INTO otp_codes (email, code_hash, expires_at)
        VALUES ($1, $2, now() + make_interval(secs => $3))
        RETURNING id`,
-      [phone, hashCode(phone, code), OTP_TTL_SECONDS]
+      [email, hashCode(email, code), OTP_TTL_SECONDS]
     );
     otpId = inserted.rows[0].id;
     await client.query('COMMIT');
@@ -87,12 +87,13 @@ export async function requestOtp(phone) {
   }
 
   try {
-    await sendSms(
-      phone,
-      `Your VibeYetu code is ${code}. It expires in ${OTP_TTL_SECONDS / 60} minutes. Do not share it.`
+    await sendEmail(
+      email,
+      'Your VibeYetu sign-in code',
+      `Your VibeYetu code is ${code}. It expires in ${OTP_TTL_SECONDS / 60} minutes. Do not share it. If you did not ask for it, ignore this email.`
     );
   } catch (err) {
-    // The SMS did not go out, so the person may try again straight away.
+    // The email did not go out, so the person may try again straight away.
     await pool.query('DELETE FROM otp_codes WHERE id = $1', [otpId]);
     throw err;
   }
@@ -101,23 +102,23 @@ export async function requestOtp(phone) {
 }
 
 // Checks the code. If it is right, returns the buyer (created on first login).
-export async function verifyOtp(phone, code) {
+export async function verifyOtp(email, code) {
   let failure = null;
   let buyer = null;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [phone]);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [email]);
 
     const { rows } = await client.query(
       `SELECT id, code_hash, attempts, (expires_at <= now()) AS expired
        FROM otp_codes
-       WHERE phone = $1 AND used_at IS NULL
+       WHERE email = $1 AND used_at IS NULL
        ORDER BY created_at DESC, id DESC
        LIMIT 1
        FOR UPDATE`,
-      [phone]
+      [email]
     );
     const row = rows[0];
 
@@ -125,7 +126,7 @@ export async function verifyOtp(phone, code) {
       failure = 'That code is wrong or has expired. Please request a new one.';
     } else if (row.attempts >= MAX_ATTEMPTS) {
       failure = 'Too many wrong tries. Please request a new code.';
-    } else if (!sameHash(row.code_hash, hashCode(phone, code))) {
+    } else if (!sameHash(row.code_hash, hashCode(email, code))) {
       await client.query(
         `UPDATE otp_codes
          SET attempts = attempts + 1,
@@ -137,15 +138,15 @@ export async function verifyOtp(phone, code) {
     } else {
       await client.query('UPDATE otp_codes SET used_at = now() WHERE id = $1', [row.id]);
       const result = await client.query(
-        `INSERT INTO buyers (phone, last_login_at)
+        `INSERT INTO buyers (email, last_login_at)
          VALUES ($1, now())
-         ON CONFLICT (phone) DO UPDATE SET last_login_at = now()
-         RETURNING id, phone, (xmax = 0) AS is_new`,
-        [phone]
+         ON CONFLICT (email) DO UPDATE SET last_login_at = now()
+         RETURNING id, email, (xmax = 0) AS is_new`,
+        [email]
       );
       buyer = {
         id: result.rows[0].id,
-        phone: result.rows[0].phone,
+        email: result.rows[0].email,
         isNew: result.rows[0].is_new,
       };
     }

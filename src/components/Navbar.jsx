@@ -7,7 +7,6 @@ import Button from "./Button.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { maskPhone } from "../lib/format.js";
 
 const linkCls = "flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold hover:bg-ink/5";
 
@@ -53,7 +52,7 @@ export default function Navbar() {
         <nav className="ml-auto flex items-center gap-1 sm:gap-2" aria-label="Main">
           {user ? (
             <>
-              <span className="hidden text-sm font-semibold text-ink-soft lg:inline">{maskPhone(user.phone)}</span>
+              <span className="hidden text-sm font-semibold text-ink-soft lg:inline">{user.email}</span>
               <NotificationBell role="buyer" />
               <Link to="/orders" className={linkCls}>
                 <Package className="h-5 w-5" aria-hidden="true" />

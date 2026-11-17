@@ -3,10 +3,8 @@ import Button from "../../components/Button.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import SellerProductForm from "./SellerProductForm.jsx";
 import ProductImage from "../../components/ProductImage.jsx";
-import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { createShopProduct, deleteShopProduct, getCategories, getShopCatalog, updateShopProduct } from "../../services/api.js";
-import { isOpenOrder } from "../../lib/shopClosure.js";
+import { createProduct, deleteProduct, getCategories, listProducts, updateProduct } from "../../services/sellerApi.js";
 import { formatKES } from "../../lib/format.js";
 import { formatSize, hasSizes, sizeEntries } from "../../lib/sizes.js";
 
@@ -15,7 +13,6 @@ const stockChip = (n) =>
 
 export default function SellerInventory() {
   const { seller } = useSeller();
-  const { orders } = useOrders();
   const [products, setProducts] = useState(null);
   const [categories, setCategories] = useState([]);
   const [editing, setEditing] = useState(null); // null, "new" or a product
@@ -39,12 +36,15 @@ export default function SellerInventory() {
 
   useEffect(() => {
     let live = true;
-    getShopCatalog(seller.shopId)
+    listProducts(seller.shopId)
       .then((list) => {
         if (live) setProducts(list);
       })
-      .catch(() => {
-        if (live) setProducts([]);
+      .catch((e) => {
+        if (live) {
+          setProducts([]);
+          setNotice({ tone: "error", text: e.message });
+        }
       });
     return () => {
       live = false;
@@ -53,8 +53,8 @@ export default function SellerInventory() {
 
   async function save(data) {
     try {
-      if (editing === "new") await createShopProduct(seller.shopId, data);
-      else await updateShopProduct(editing.id, data);
+      if (editing === "new") await createProduct(seller.shopId, data);
+      else await updateProduct(seller.shopId, editing.id, data);
     } catch (e) {
       return { ok: false, message: e.message || "Could not save. Please try again." };
     }
@@ -66,7 +66,7 @@ export default function SellerInventory() {
 
   async function toggle(p) {
     try {
-      await updateShopProduct(p.id, { active: p.active === false });
+      await updateProduct(seller.shopId, p.id, { active: p.active === false });
       setNotice({
         tone: "ok",
         text: p.active === false ? "Product is visible in your shop again." : "Product hidden from buyers.",
@@ -89,7 +89,7 @@ export default function SellerInventory() {
     if (!p || deleteBusy) return;
     setDeleteBusy(true);
     try {
-      await deleteShopProduct(seller.shopId, p.id);
+      await deleteProduct(seller.shopId, p.id);
       if (editing && editing !== "new" && editing.id === p.id) setEditing(null);
       setNotice({ tone: "ok", text: `"${p.name}" was deleted.` });
       setReload((n) => n + 1);
@@ -102,11 +102,6 @@ export default function SellerInventory() {
   }
 
   const lowCount = (products || []).filter((p) => p.active !== false && p.stock <= 5).length;
-  // Open orders that include the product being deleted. They can still be completed.
-  const openWithDeleting = deleting
-    ? orders.filter((o) => o.shopId === seller.shopId && isOpenOrder(o) && (o.items || []).some((i) => i.productId === deleting.id)).length
-    : 0;
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -215,12 +210,6 @@ export default function SellerInventory() {
           onCancel={() => setDeleting(null)}
         >
           <p>This removes the product from your shop and from search for good. Orders already placed keep the item&apos;s name and price.</p>
-          {openWithDeleting > 0 && (
-            <p className="rounded-xl bg-amber-50 px-3 py-2 font-semibold text-amber-900">
-              {openWithDeleting} open {openWithDeleting === 1 ? "order includes" : "orders include"} this product. {openWithDeleting === 1 ? "It" : "They"} can
-              still be completed.
-            </p>
-          )}
           {deleting.active !== false && (
             <p>
               Not sure?{" "}

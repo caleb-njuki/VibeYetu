@@ -1,12 +1,15 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { SESSION_EXPIRED, getToken, setToken } from "../services/http.js";
 
+// The signed-in buyer. The proof of sign-in is a token the server gave us; it is kept in http.js.
 const AuthContext = createContext(null);
 const STORAGE_KEY = "vibeyetu_user";
 
 function loadUser() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    return parsed && typeof parsed.phone === "string" ? parsed : null;
+    // Without a token the saved person is not really signed in.
+    return parsed && typeof parsed.email === "string" && getToken("buyer") ? parsed : null;
   } catch {
     return null;
   }
@@ -15,10 +18,27 @@ function loadUser() {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(loadUser);
 
+  useEffect(() => {
+    const onExpired = (e) => {
+      if (e.detail === "buyer") {
+        setUser(null);
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // Nothing to clean up.
+        }
+      }
+    };
+    window.addEventListener(SESSION_EXPIRED, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED, onExpired);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
-      login: (nextUser) => {
+      // login({ id, phone }, token)
+      login: (nextUser, token) => {
+        if (token) setToken("buyer", token);
         setUser(nextUser);
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
@@ -27,6 +47,7 @@ export function AuthProvider({ children }) {
         }
       },
       logout: () => {
+        setToken("buyer", "");
         setUser(null);
         try {
           localStorage.removeItem(STORAGE_KEY);

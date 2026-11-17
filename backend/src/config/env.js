@@ -70,9 +70,11 @@ const schema = z
     // The shortcode money is paid OUT from. In the sandbox B2C this is the test shortcode shown on the portal. Empty = the STK shortcode.
     DARAJA_PAYOUT_SHORTCODE: z.string().optional(),
 
-    // Africa's Talking (SMS). Only used when NODE_ENV=production.
-    AT_USERNAME: z.string().min(1, 'AT_USERNAME cannot be empty').default('sandbox'),
-    AT_API_KEY: z.string().optional(),
+    // Email codes (sign-in, sign-up, password and payout changes). console = printed in this terminal. smtp = a real email is sent with a Gmail account.
+    EMAIL_MODE: z.enum(['console', 'smtp']).default('console'),
+    EMAIL_USER: z.string().optional(), // the Gmail address that sends the emails
+    EMAIL_APP_PASSWORD: z.string().optional(), // a Google "App password" (not the normal Gmail password)
+    EMAIL_FROM_NAME: z.string().min(1).default('VibeYetu'),
 
     // Cloudinary (photos). Optional: without them the server still runs, but photo uploads say "not set up".
     CLOUDINARY_CLOUD_NAME: z.string().optional(),
@@ -116,12 +118,11 @@ const schema = z
       need('DARAJA_CALLBACK_BASE_URL', /^https:\/\/[^\s/]+/.test(env.DARAJA_CALLBACK_BASE_URL || ''), 'DARAJA_CALLBACK_BASE_URL must be a public https address (for example from ngrok)');
       need('DARAJA_CALLBACK_SECRET', /^[A-Za-z0-9_-]{24,}$/.test(env.DARAJA_CALLBACK_SECRET || ''), 'DARAJA_CALLBACK_SECRET must be at least 24 letters or numbers (see .env.example)');
     }
-    if (env.NODE_ENV === 'production' && (!env.AT_API_KEY || env.AT_API_KEY.startsWith('your_'))) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['AT_API_KEY'],
-        message: 'AT_API_KEY is required in production',
-      });
+    if (env.EMAIL_MODE === 'smtp' && (!env.EMAIL_USER || !env.EMAIL_APP_PASSWORD)) {
+      ctx.addIssue({ code: 'custom', path: ['EMAIL_USER'], message: 'EMAIL_USER and EMAIL_APP_PASSWORD are required when EMAIL_MODE=smtp' });
+    }
+    if (env.NODE_ENV === 'production' && env.EMAIL_MODE !== 'smtp') {
+      ctx.addIssue({ code: 'custom', path: ['EMAIL_MODE'], message: 'EMAIL_MODE must be smtp in production' });
     }
   });
 
@@ -189,9 +190,11 @@ export const config = {
     secret: env.JWT_SECRET,
     expiresIn: env.JWT_EXPIRES_IN,
   },
-  africasTalking: {
-    username: env.AT_USERNAME,
-    apiKey: env.AT_API_KEY,
+  email: {
+    mode: env.EMAIL_MODE,
+    user: env.EMAIL_USER,
+    appPassword: env.EMAIL_APP_PASSWORD ? env.EMAIL_APP_PASSWORD.replace(/\s+/g, '') : undefined,
+    fromName: env.EMAIL_FROM_NAME,
   },
   cloudinary: {
     enabled: Boolean(cloudName && cloudKey && cloudSecret),

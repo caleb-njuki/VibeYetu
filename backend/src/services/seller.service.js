@@ -20,7 +20,7 @@ const BAD_PHONE = 'Enter a valid phone number, for example 0712 345 678.';
 
 // The shop columns the API sends back, named the way the frontend names them.
 const SHOP_SELECT = `
-  SELECT s.id::text AS id, s.name, s.area_id AS "areaId", a.name AS area, a.town,
+  SELECT s.id::text AS id, s.name, s.area_id AS "areaId", COALESCE(s.place_name, a.name) AS area, COALESCE(s.place_town, a.town) AS town,
          s.lat, s.lng, to_char(s.opens, 'HH24:MI') AS opens, to_char(s.closes, 'HH24:MI') AS closes,
          s.fulfillment, s.delivery_fee AS "deliveryFee", s.description, s.verified, s.suspended,
          s.contact_phone AS "contactPhone", s.photo, EXTRACT(YEAR FROM s.created_at)::int AS since
@@ -94,9 +94,27 @@ export function validateRegistration({ account, details, shop, consent }) {
 
   const nameCheck = checkShopNameRules(shop.name);
   if (!nameCheck.ok) return nameCheck.message;
-  if (!String(shop.areaId || '').trim()) return 'Choose the area your shop is in.';
-  try { readPin(shop.lat, shop.lng, (m) => new Error(m)); } catch (e) { return e.message; }
+  try {
+    if (!readPin(shop.lat, shop.lng, (m) => new Error(m))) return 'Place the pin on the map to show exactly where your shop is.';
+  } catch (e) {
+    return e.message;
+  }
   return '';
+}
+
+// The place name and town the map gave for the pin (for example "Westlands" and "Nairobi"). Both are optional.
+const cleanPlace = (value) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
+
+// The known area nearest to the pin. It is only kept for old data; buyers see the place name from the map.
+async function nearestAreaId(db, lat, lng) {
+  const { rows } = await db.query(
+    `SELECT id FROM areas
+     ORDER BY 2 * 6371 * asin(sqrt(LEAST(1, power(sin(radians(lat - $1::float8) / 2), 2)
+       + cos(radians($1::float8)) * cos(radians(lat)) * power(sin(radians(lng - $2::float8) / 2), 2)))) ASC
+     LIMIT 1`,
+    [lat, lng]
+  );
+  return rows[0].id;
 }
 
 // ---- Reading ----
@@ -154,9 +172,9 @@ export async function registerSeller(input) {
   const registered = details.businessType === 'registered';
 
   const { sellerRow, shopId } = await inTransaction(async (client) => {
-    const area = await client.query('SELECT id, lat, lng FROM areas WHERE id = $1', [String(shop.areaId).trim()]);
-    if (!area.rows[0]) throw httpError(400, 'Choose the area your shop is in.');
-    const pin = readPin(shop.lat, shop.lng, (m) => httpError(400, m)) || area.rows[0]; // the exact pin when sent, otherwise the area centre
+    const pin = readPin(shop.lat, shop.lng, (m) => httpError(400, m));
+    if (!pin) throw httpError(400, 'Place the pin on the map to show exactly where your shop is.');
+    const areaId = await nearestAreaId(client, pin.lat, pin.lng);
 
     const seller = await client.query(
       `INSERT INTO sellers
@@ -179,18 +197,20 @@ export async function registerSeller(input) {
     );
 
     const created = await client.query(
-      `INSERT INTO shops (seller_id, name, name_key, area_id, lat, lng, description, contact_phone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO shops (seller_id, name, name_key, area_id, lat, lng, description, contact_phone, place_name, place_town)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
       [
         seller.rows[0].id,
         nameRules.name,
         nameRules.key,
-        area.rows[0].id,
+        areaId,
         pin.lat,
         pin.lng,
         String(shop.description || '').trim().slice(0, 300),
         phone,
+        cleanPlace(shop.placeName),
+        cleanPlace(shop.placeTown),
       ]
     );
     return { sellerRow: seller.rows[0], shopId: created.rows[0].id };
@@ -235,7 +255,7 @@ export async function loginSeller(emailRaw, password) {
 }
 
 // ---- Open a branch ----
-export async function createShop(sellerId, { name, areaId, description, lat, lng }) {
+export async function createShop(sellerId, { name, description, lat, lng, placeName, placeTown }) {
   const nameRules = checkShopNameRules(name);
   if (!nameRules.ok) throw httpError(400, nameRules.message);
 
@@ -252,23 +272,25 @@ export async function createShop(sellerId, { name, areaId, description, lat, lng
       throw httpError(400, `You can run up to ${MAX_SHOPS_PER_SELLER} shops. Contact support if you need more.`);
     }
 
-    const area = await client.query('SELECT id, lat, lng FROM areas WHERE id = $1', [String(areaId || '').trim()]);
-    if (!area.rows[0]) throw httpError(400, 'Choose the area your shop is in.');
-    const pin = readPin(lat, lng, (m) => httpError(400, m)) || area.rows[0];
+    const pin = readPin(lat, lng, (m) => httpError(400, m));
+    if (!pin) throw httpError(400, 'Place the pin on the map to show exactly where your shop is.');
+    const areaId = await nearestAreaId(client, pin.lat, pin.lng);
 
     const created = await client.query(
-      `INSERT INTO shops (seller_id, name, name_key, area_id, lat, lng, description, contact_phone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO shops (seller_id, name, name_key, area_id, lat, lng, description, contact_phone, place_name, place_town)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
       [
         sellerId,
         nameRules.name,
         nameRules.key,
-        area.rows[0].id,
+        areaId,
         pin.lat,
         pin.lng,
         String(description || '').trim().slice(0, 300),
         seller.rows[0].phone,
+        cleanPlace(placeName),
+        cleanPlace(placeTown),
       ]
     );
     return created.rows[0].id;
@@ -284,7 +306,7 @@ export async function updateShop(sellerId, shopId, changes) {
     const found = await client.query(
       `SELECT name, name_key, area_id, lat, lng, description,
               to_char(opens, 'HH24:MI') AS opens, to_char(closes, 'HH24:MI') AS closes,
-              fulfillment, delivery_fee, contact_phone, photo
+              fulfillment, delivery_fee, contact_phone, photo, place_name, place_town
        FROM shops
        WHERE id = $1 AND seller_id = $2 AND closed_at IS NULL
        FOR UPDATE`,
@@ -306,6 +328,8 @@ export async function updateShop(sellerId, shopId, changes) {
       deliveryFee: cur.delivery_fee,
       phone: cur.contact_phone,
       photo: cur.photo,
+      placeName: cur.place_name,
+      placeTown: cur.place_town,
     };
 
     if (changes.name !== undefined) {
@@ -315,15 +339,15 @@ export async function updateShop(sellerId, shopId, changes) {
       next.key = rules.key;
     }
     if (changes.description !== undefined) next.description = String(changes.description).trim().slice(0, 300);
-    if (changes.areaId !== undefined) {
-      const area = await client.query('SELECT id, lat, lng FROM areas WHERE id = $1', [String(changes.areaId).trim()]);
-      if (!area.rows[0]) throw httpError(400, 'Choose the area your shop is in.');
-      next.areaId = area.rows[0].id;
-      next.lat = area.rows[0].lat;
-      next.lng = area.rows[0].lng;
+    const pin = readPin(changes.lat, changes.lng, (m) => httpError(400, m)); // the pin from the map
+    if (pin) {
+      next.lat = pin.lat;
+      next.lng = pin.lng;
+      next.areaId = await nearestAreaId(client, pin.lat, pin.lng);
+      // A moved pin has a new place name. If the page did not send one, the old name no longer fits.
+      next.placeName = cleanPlace(changes.placeName);
+      next.placeTown = cleanPlace(changes.placeTown);
     }
-    const pin = readPin(changes.lat, changes.lng, (m) => httpError(400, m)); // an exact pin wins over the area centre
-    if (pin) { next.lat = pin.lat; next.lng = pin.lng; }
     if (changes.opens !== undefined) next.opens = changes.opens;
     if (changes.closes !== undefined) next.closes = changes.closes;
     if (!(next.opens < next.closes)) throw httpError(400, 'The closing time must be after the opening time.');
@@ -350,7 +374,8 @@ export async function updateShop(sellerId, shopId, changes) {
     await client.query(
       `UPDATE shops
        SET name = $2, name_key = $3, area_id = $4, lat = $5, lng = $6, description = $7,
-           opens = $8, closes = $9, fulfillment = $10, delivery_fee = $11, contact_phone = $12, photo = $13
+           opens = $8, closes = $9, fulfillment = $10, delivery_fee = $11, contact_phone = $12, photo = $13,
+           place_name = $14, place_town = $15
        WHERE id = $1`,
       [
         shopId,
@@ -366,6 +391,8 @@ export async function updateShop(sellerId, shopId, changes) {
         next.deliveryFee,
         next.phone,
         next.photo,
+        next.placeName,
+        next.placeTown,
       ]
     );
     if (cur.photo && cur.photo !== next.photo) replacedPhoto = cur.photo;

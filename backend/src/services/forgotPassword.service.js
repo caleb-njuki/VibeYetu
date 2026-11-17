@@ -4,7 +4,7 @@ import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { requestPasswordCode, resetPassword, verifyPasswordCode } from './password.service.js';
 
-const GENERIC_PHONE = 'the phone you signed up with';
+const GENERIC_SENT_TO = 'the email you signed up with';
 const RESEND_MS = 30 * 1000;
 
 async function sellerIdFor(emailRaw) {
@@ -16,7 +16,7 @@ async function sellerIdFor(emailRaw) {
 export async function requestForgot(email) {
   const id = await sellerIdFor(email);
   if (id) await requestPasswordCode(id);
-  return { phone: GENERIC_PHONE, resendInMs: RESEND_MS };
+  return { sentTo: GENERIC_SENT_TO, resendInMs: RESEND_MS };
 }
 
 export async function verifyForgot(email, code) {

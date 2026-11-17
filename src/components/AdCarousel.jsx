@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Flag } from "lucide-react";
 import AdSlide from "./AdSlide.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
-import { reportAd } from "../lib/ads.js";
+import { post } from "../services/http.js";
 
 // Shown when no seller ad is live, so the home page is never empty.
 const HOUSE_SLIDE = {
@@ -40,9 +40,13 @@ export default function AdCarousel({ ads }) {
     setReportMsg("");
   }, [current]);
 
-  function report(reason) {
-    const result = reportAd(ad.id, user.phone, reason);
-    setReportMsg(result.ok ? "Thank you. We will review this ad." : result.message);
+  async function report(reason) {
+    try {
+      await post(`/ads/${ad.id}/report`, { reason }, "buyer");
+      setReportMsg("Thank you. We will review this ad.");
+    } catch (err) {
+      setReportMsg(err.message);
+    }
   }
 
   return (

@@ -13,6 +13,8 @@ const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text
 // Three small steps inside the Close shop box: send a code, enter it, choose a new password.
 // `onDone` is called after the new password is saved. `onCancel` goes back to the password box.
 export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, backLabel = "Back to closing my shop" }) {
+  // Inside the Close shop box the seller is signed in (shopId is given); on the Forgot page they are not.
+  const account = Boolean(shopId);
   const [stage, setStage] = useState("send"); // "send" | "code" | "new"
   const [sentTo, setSentTo] = useState("");
   const [code, setCode] = useState("");
@@ -41,10 +43,10 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, b
     setBusy(true);
     setError("");
     try {
-      const result = await requestResetCode(email);
+      const result = await requestResetCode(email, account);
       if (!alive.current) return;
       if (!result.ok) return setError(result.message);
-      setSentTo(result.phone);
+      setSentTo(result.sentTo);
       setCode("");
       setWaitSeconds(Math.round(result.resendInMs / 1000));
       setStage("code");
@@ -56,11 +58,11 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, b
   async function checkCode(e) {
     e.preventDefault();
     if (busy) return;
-    if (code.trim().length !== RESET_CODE_LENGTH) return setError(`Enter the ${RESET_CODE_LENGTH}-digit code from the SMS.`);
+    if (code.trim().length !== RESET_CODE_LENGTH) return setError(`Enter the ${RESET_CODE_LENGTH}-digit code from the email.`);
     setBusy(true);
     setError("");
     try {
-      const result = await verifyResetCode(email, code);
+      const result = await verifyResetCode(email, code, account);
       if (!alive.current) return;
       if (!result.ok) {
         setCode("");
@@ -81,7 +83,7 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, b
     setBusy(true);
     setError("");
     try {
-      const result = await completePasswordReset(email, password, confirm, shopId);
+      const result = await completePasswordReset(email, password, confirm, account);
       if (!alive.current) return;
       if (!result.ok) {
         if (result.expired) setStage("send");
@@ -105,7 +107,7 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, b
       {stage === "send" && (
         <div className="space-y-3 text-sm text-ink-soft">
           <p>
-            We will send a {RESET_CODE_LENGTH}-digit code by SMS to the phone number you signed up with. Then you can choose a new
+            We will send a {RESET_CODE_LENGTH}-digit code by email to the address you signed up with. Then you can choose a new
             password.
           </p>
           <Button onClick={sendCode} disabled={busy} data-autofocus>
@@ -121,7 +123,7 @@ export default function ForgotPasswordPanel({ email, shopId, onDone, onCancel, b
           </p>
           <div className="space-y-1.5">
             <label htmlFor="reset-code" className="text-sm font-semibold">
-              Code from the SMS
+              Code from the email
             </label>
             <input
               id="reset-code"

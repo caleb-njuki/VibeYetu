@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Crosshair } from "lucide-react";
-import { findArea } from "../lib/areas.js";
+import { placeFor } from "../lib/place.js";
 
 const NAIROBI = { lat: -1.2864, lng: 36.8172 };
 const PIN_HTML =
   '<svg width="32" height="42" viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M16 1C8 1 2 7 2 15c0 10 14 26 14 26s14-16 14-26C30 7 24 1 16 1z" fill="#0f766e" stroke="#fff" stroke-width="2"/><circle cx="16" cy="15" r="5" fill="#fff"/></svg>';
 
 // A free map (OpenStreetMap) where the seller puts a pin on their shop.
-// value is { lat, lng } or null. The seller taps the map, drags the pin, or uses their phone's location.
-export default function PinPicker({ value, onChange, areaId, label = "Place a pin on your shop" }) {
+// value is { lat, lng, placeName, placeTown } or null. The seller taps the map, drags the pin, or uses their phone's location.
+// onChange is called at once with { lat, lng }, then again with the place name the map gives for that spot.
+export default function PinPicker({ value, onChange, label = "Place a pin on your shop" }) {
   const box = useRef(null);
   const map = useRef(null);
   const marker = useRef(null);
@@ -18,16 +19,28 @@ export default function PinPicker({ value, onChange, areaId, label = "Place a pi
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
   change.current = onChange;
+  const latest = useRef(0);
+
+  // Sets the pin, then looks up the name of the place for it.
+  function choose(lat, lng) {
+    const id = ++latest.current;
+    change.current({ lat, lng, placeName: "", placeTown: "" });
+    placeFor(lat, lng).then((place) => {
+      if (id === latest.current) change.current({ lat, lng, ...place });
+    });
+  }
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
 
   // Build the map once.
   useEffect(() => {
-    const start = value || findArea(areaId) || NAIROBI;
-    const m = L.map(box.current, { scrollWheelZoom: false }).setView([start.lat, start.lng], value ? 17 : findArea(areaId) ? 14 : 12);
+    const start = value || NAIROBI;
+    const m = L.map(box.current, { scrollWheelZoom: false }).setView([start.lat, start.lng], value ? 17 : 12);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(m);
-    m.on("click", (e) => change.current({ lat: e.latlng.lat, lng: e.latlng.lng }));
+    m.on("click", (e) => chooseRef.current(e.latlng.lat, e.latlng.lng));
     map.current = m;
     return () => {
       m.remove();
@@ -57,21 +70,13 @@ export default function PinPicker({ value, onChange, areaId, label = "Place a pi
       }).addTo(m);
       marker.current.on("dragend", () => {
         const p = marker.current.getLatLng();
-        change.current({ lat: p.lat, lng: p.lng });
+        chooseRef.current(p.lat, p.lng);
       });
     } else {
       marker.current.setLatLng([value.lat, value.lng]);
     }
     if (!m.getBounds().contains([value.lat, value.lng])) m.setView([value.lat, value.lng], Math.max(m.getZoom(), 16));
   }, [value]);
-
-  // When the area changes and there is no pin yet, look at that area.
-  useEffect(() => {
-    const a = findArea(areaId);
-    if (a && map.current && !value) map.current.setView([a.lat, a.lng], 14);
-    // Only the area matters here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [areaId]);
 
   function useMyLocation() {
     if (!navigator.geolocation) {
@@ -84,7 +89,7 @@ export default function PinPicker({ value, onChange, areaId, label = "Place a pi
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setStatus("idle");
-        change.current({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        chooseRef.current(pos.coords.latitude, pos.coords.longitude);
         if (map.current) map.current.setView([pos.coords.latitude, pos.coords.longitude], 17);
       },
       (err) => {
@@ -110,7 +115,9 @@ export default function PinPicker({ value, onChange, areaId, label = "Place a pi
           {status === "locating" ? "Finding you..." : "Use my current location"}
         </button>
         <p className={`text-xs ${value ? "font-semibold text-vibe-dark" : "text-ink-mute"}`}>
-          {value ? "Pin placed. Drag it or tap the map to move it." : "Tap the map where your shop is."}
+          {value
+            ? `Pin placed${value.placeName ? `: ${[value.placeName, value.placeTown].filter((x, i, all) => x && all.indexOf(x) === i).join(", ")}` : ""}. Drag it or tap the map to move it.`
+            : "Tap the map where your shop is."}
         </p>
       </div>
       {message && (

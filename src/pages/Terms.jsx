@@ -60,7 +60,7 @@ const SECTIONS = [
   },
   {
     title: "15. Payout methods (sellers)",
-    text: "Sellers choose where we send their money: a Till number, a Paybill number with an account number, a Pochi la Biashara phone number or an M-Pesa phone number. You are responsible for entering the details correctly, because money sent to the number you gave us cannot be recalled by VibeYetu. Before any change to your payout details is saved, we send a one-time code (OTP) to the phone you signed up with, and we add a notice to your account so you can spot a change you did not make. Any charge that M-Pesa applies to receiving money is set by Safaricom and is not part of the VibeYetu fee.",
+    text: "Sellers choose where we send their money: a Till number, a Paybill number with an account number, a Pochi la Biashara phone number or an M-Pesa phone number. You are responsible for entering the details correctly, because money sent to the number you gave us cannot be recalled by VibeYetu. Before any change to your payout details is saved, we send a one-time code (OTP) to the email you signed up with, and we add a notice to your account so you can spot a change you did not make. Any charge that M-Pesa applies to receiving money is set by Safaricom and is not part of the VibeYetu fee.",
   },
   {
     title: "16. Sizes (sellers)",

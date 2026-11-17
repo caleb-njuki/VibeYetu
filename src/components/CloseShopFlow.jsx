@@ -7,7 +7,7 @@ import useDialog from "../hooks/useDialog.js";
 import { useOrders } from "../context/OrdersContext.jsx";
 import { useSeller } from "../context/SellerAuthContext.jsx";
 import { getShopCatalog } from "../services/api.js";
-import { SHOPS_CHANGED, ownedShops, signInSeller } from "../lib/sellers.js";
+import { SHOPS_CHANGED, signInSeller } from "../lib/sellers.js";
 import { adState, listAds } from "../lib/ads.js";
 import { listOffers, offerState } from "../lib/offers.js";
 import { formatKES } from "../lib/format.js";
@@ -33,7 +33,7 @@ export default function CloseShopFlow({ onClose }) {
   const ref = useRef(null);
   const titleId = useId();
 
-  const mine = ownedShops(seller.email);
+  const mine = seller.shops;
   const [shopName] = useState(() => mine.find((s) => s.id === seller.shopId)?.name || "your shop");
   const others = mine.filter((s) => s.id !== seller.shopId);
 

@@ -5,7 +5,7 @@ import ForgotPasswordPanel from "../../components/ForgotPasswordPanel.jsx";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-vibe";
 
-// "Forgot your password?" from the sign-in page. The seller types their email, gets a code by SMS,
+// "Forgot your password?" from the sign-in page. The seller types their email, gets a code by email,
 // then chooses a new password and signs in again.
 export default function SellerForgot() {
   const navigate = useNavigate();
@@ -25,7 +25,7 @@ export default function SellerForgot() {
       <div className="space-y-5 rounded-3xl bg-white p-6 shadow-card sm:p-8">
         <div className="space-y-1">
           <h1 className="text-2xl font-extrabold">Forgot your password?</h1>
-          <p className="text-sm text-ink-mute">We will send a code to the phone you signed up with.</p>
+          <p className="text-sm text-ink-mute">We will send a code to the email you signed up with.</p>
         </div>
 
         {!started ? (

@@ -150,7 +150,7 @@ const maskId = (id) => (id ? '•'.repeat(Math.max(0, String(id).length - 3)) + 
 
 export async function listShops() {
   const { rows } = await pool.query(
-    `SELECT s.id, s.name, a.town, s.verified, s.suspended, s.closed_at, s.close_reason, s.close_details, s.suspend_kind, s.suspended_at, s.suspend_order_ids,
+    `SELECT s.id, s.name, COALESCE(s.place_town, a.town) AS town, s.verified, s.suspended, s.closed_at, s.close_reason, s.close_details, s.suspend_kind, s.suspended_at, s.suspend_order_ids,
             (SELECT count(*)::int FROM orders o WHERE o.shop_id = s.id AND o.status NOT IN (${HIDDEN})) AS order_count,
             se.id AS seller_id, se.full_name, se.email, se.phone, se.id_number, se.kra_pin,
             se.business_type, se.business_name, se.business_reg_no, se.terms_version, se.consented_at

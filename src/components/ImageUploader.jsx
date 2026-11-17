@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
-import { compressImage, imageSrc, saveImage } from "../lib/images.js";
+import { compressImage, imageSrc, uploadImage } from "../lib/images.js";
+import { useSeller } from "../context/SellerAuthContext.jsx";
 
-// Pick photos from the phone or computer. `value` is a list of saved photo ids.
+// Pick photos from the phone or computer. `value` is a list of photos as the server gives them: { id, url, thumb }.
+// Each photo is sent to Cloudinary for the shop the seller is working on.
 export default function ImageUploader({ label, value, onChange, max = 4, maxSize }) {
+  const { seller } = useSeller();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef(null);
@@ -18,7 +21,7 @@ export default function ImageUploader({ label, value, onChange, max = 4, maxSize
     const added = [];
     try {
       for (const file of files.slice(0, room)) {
-        added.push(saveImage(await compressImage(file, maxSize)));
+        added.push(await uploadImage(seller.shopId, await compressImage(file, maxSize)));
       }
       if (files.length > room) setError(`Only ${max} ${max === 1 ? "photo is" : "photos are"} allowed.`);
     } catch (err) {
@@ -33,8 +36,8 @@ export default function ImageUploader({ label, value, onChange, max = 4, maxSize
     <div className="space-y-2">
       <p className="text-sm font-semibold">{label}</p>
       <div className="flex flex-wrap gap-3">
-        {value.map((id, i) => (
-          <PhotoTile key={id} id={id} main={max > 1 && i === 0} onRemove={() => onChange(value.filter((x) => x !== id))} />
+        {value.map((photo, i) => (
+          <PhotoTile key={photo.id} photo={photo} main={max > 1 && i === 0} onRemove={() => onChange(value.filter((x) => x.id !== photo.id))} />
         ))}
         {room > 0 && (
           <button
@@ -59,10 +62,10 @@ export default function ImageUploader({ label, value, onChange, max = 4, maxSize
 }
 
 
-function PhotoTile({ id, main, onRemove }) {
+function PhotoTile({ photo, main, onRemove }) {
   return (
     <div className="relative h-24 w-24">
-      <img src={imageSrc(id)} alt="" className="h-full w-full rounded-xl object-cover" />
+      <img src={imageSrc(photo, true)} alt="" className="h-full w-full rounded-xl object-cover" />
       {main && <span className="absolute bottom-1 left-1 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] font-bold text-white">Main</span>}
       <button
         type="button"

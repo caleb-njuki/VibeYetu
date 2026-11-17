@@ -4,35 +4,36 @@ import Button from "../../components/Button.jsx";
 import PinPicker from "../../components/PinPicker.jsx";
 import ShopNameField from "../../components/ShopNameField.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
-import { AREAS, TOWNS } from "../../lib/areas.js";
-import { MAX_SHOPS_PER_SELLER, SHOPS_CHANGED, checkShopName, createShop, ownedShops } from "../../lib/sellers.js";
+import { MAX_SHOPS_PER_SELLER, checkShopName, createShop } from "../../lib/sellers.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
 
 export default function SellerBranchNew() {
-  const { seller, switchShop } = useSeller();
+  const { seller, addShop } = useSeller();
   const navigate = useNavigate();
-  const mine = ownedShops(seller.email);
+  const mine = seller.shops;
   const current = mine.find((s) => s.id === seller.shopId);
   // Start from the current shop's name, so the seller only adds the town or branch.
   const [name, setName] = useState(current ? `${current.name} ` : "");
-  const [areaId, setAreaId] = useState("");
   const [pin, setPin] = useState(null);
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
 
   const full = mine.length >= MAX_SHOPS_PER_SELLER;
 
-  function onSubmit(e) {
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e) {
     e.preventDefault();
+    if (busy) return;
     const check = checkShopName(name);
     if (!check.ok) return setError(check.message);
-    if (!areaId) return setError("Choose the area of this branch.");
     if (!pin) return setError("Place the pin on the map to show exactly where this branch is.");
-    const result = createShop(seller.email, { name, areaId, description, lat: pin.lat, lng: pin.lng });
+    setBusy(true);
+    const result = await createShop(seller.email, { name, description, lat: pin.lat, lng: pin.lng, placeName: pin.placeName, placeTown: pin.placeTown });
+    setBusy(false);
     if (!result.ok) return setError(result.message);
-    switchShop(result.shop.id);
-    window.dispatchEvent(new Event(SHOPS_CHANGED));
+    addShop(result.shop);
     navigate("/my-shop/settings", { replace: true });
   }
 
@@ -66,28 +67,8 @@ export default function SellerBranchNew() {
         </p>
       ) : (
         <form onSubmit={onSubmit} className="space-y-5 rounded-2xl bg-white p-5 shadow-card" noValidate>
-          <ShopNameField id="b-name" label="Branch shop name" value={name} onChange={setName} areaId={areaId} />
-          <div className="space-y-1.5">
-            <label htmlFor="b-area" className="text-sm font-semibold">
-              Which area is this branch in?
-            </label>
-            <select id="b-area" value={areaId} onChange={(e) => {
-                setAreaId(e.target.value);
-                setPin(null);
-              }} className={inputCls}>
-              <option value="">Choose the area</option>
-              {TOWNS.map((town) => (
-                <optgroup key={town} label={town}>
-                  {AREAS.filter((a) => a.town === town).map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-          <PinPicker value={pin} areaId={areaId} onChange={setPin} label="Place a pin on this branch" />
+          <ShopNameField id="b-name" label="Branch shop name" value={name} onChange={setName} place={pin?.placeName || ""} />
+          <PinPicker value={pin} onChange={setPin} label="Place a pin on this branch" />
           <div className="space-y-1.5">
             <label htmlFor="b-desc" className="text-sm font-semibold">
               About this branch (optional)
@@ -102,7 +83,7 @@ export default function SellerBranchNew() {
           )}
 
           <div className="flex gap-3">
-            <Button type="submit">Create branch</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Create branch"}</Button>
             <Button to="/my-shop/settings" variant="outline">
               Cancel
             </Button>

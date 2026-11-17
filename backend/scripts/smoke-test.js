@@ -35,9 +35,37 @@ async function call(method, path, { body, token } = {}) {
 
 function expectStatus(res, status) {
   if (res.status !== status) {
-    throw new Error(`expected HTTP ${status} but got ${res.status}. The server said: ${JSON.stringify(res.data)}`);
+    const err = new Error(`expected HTTP ${status} but got ${res.status}. The server said: ${JSON.stringify(res.data)}`);
+    err.got = res.status;
+    err.serverSaid = String(res.data?.error ?? '');
+    throw err;
   }
   return res.data;
+}
+
+// Turns a failure into plain advice, so you do not have to guess what it means.
+// Returns { fix, sendToClaude }. sendToClaude is true only when this script cannot tell what is wrong.
+function explain(err) {
+  const said = `${err.serverSaid ?? ''} ${err.message}`;
+  if (/Card payments are not available|real M-Pesa mode|PAYMENTS_MODE=daraja/i.test(said)) {
+    return { fix: ['The server is in real M-Pesa mode, and this test pays by itself.', '1. Open backend\\.env and set:  PAYMENTS_MODE=simulated   then save it.', '2. In the SERVER terminal press Ctrl+C, then run:  npm run dev', '3. Run this smoke test again.'] };
+  }
+  if (err.got === 429 || /too many/i.test(said)) {
+    return { fix: ['The server is limiting requests, because this test was run many times in a short time.', 'Wait 15 minutes, or press Ctrl+C in the SERVER terminal and run  npm run dev  again, then run this test again.'] };
+  }
+  if (/code is not correct|wrong code|expired|code has expired/i.test(said)) {
+    return { fix: ['The 6-digit code was wrong or too old.', 'Open the NEWEST email with your code (in console mode: the NEWEST "[DEV EMAIL]" line in the SERVER terminal) and type that code.', 'Run the test again.'] };
+  }
+  if (err.got === 500) {
+    return { fix: ['The server crashed on this step. The real reason is written in the SERVER terminal (the one running npm run dev), usually in red.'], sendToClaude: 'Copy the last 20 lines of the SERVER terminal and paste them to Claude. They name the file and line that failed.' };
+  }
+  if (err.got === 401 || err.got === 403) {
+    return { fix: ['The server refused this step as "not allowed".', 'If you changed JWT_SECRET or restarted the database in the middle of the test, run it again from the start.'], sendToClaude: 'If it fails the same way again, copy this screen and the last 20 lines of the SERVER terminal and paste them to Claude.' };
+  }
+  if (err.got === 404) {
+    return { fix: ['The server does not know this address. A route file is probably missing or not copied into the right folder.'], sendToClaude: 'Copy this screen to Claude. It shows which step needs which file.' };
+  }
+  return { fix: ['This script cannot tell what is wrong from the message alone.'], sendToClaude: 'Copy this screen and the last 20 lines of the SERVER terminal and paste them to Claude.' };
 }
 
 function check(condition, message) {
@@ -51,16 +79,24 @@ async function step(name, work) {
     console.log(`✔ ${name}${note ? `  (${note})` : ''}`);
   } catch (err) {
     console.log(`\n✘ ${name}\n  ${err.message}\n`);
-    console.log(`Stopped after ${passed} passed check(s). Copy everything above and send it to Claude.`);
+    const { fix, sendToClaude } = explain(err);
+    console.log('WHAT TO DO:');
+    for (const line of fix) console.log(`  ${line}`);
+    if (sendToClaude) console.log(`\n  ${sendToClaude}`);
+    console.log(`\n${passed} check(s) passed before this one.`);
     process.exit(1);
   }
 }
 
 const stamp = Date.now();
-const email = `smoke${stamp}@test.com`;
+// Codes go by email. With EMAIL_MODE=smtp use your own Gmail so the codes reach you:  $env:SMOKE_EMAIL="you@gmail.com"
+// (the test makes you+smokeseller...@gmail.com and you+smokebuyer...@gmail.com, which Gmail delivers to you).
+const alias = (tag) => (process.env.SMOKE_EMAIL ? process.env.SMOKE_EMAIL.replace('@', `+${tag}${stamp}@`) : `${tag}${stamp}@test.com`);
+const email = alias('smokeseller');
+const buyerEmail = alias('smokebuyer');
 const password = 'Passw0rd123';
 const shopName = `Smoke Shop ${stamp.toString(36)}`;
-const phone = `07${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+const phone = process.env.SMOKE_PHONE || `07${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 let sellerToken;
 let shopId;
 let productId;
@@ -83,13 +119,25 @@ await step('6 categories', async () => {
 });
 
 // ---- Seller ----
+// A seller must prove the email with a code first. In console mode the server returns the code; otherwise it is in the email.
+async function emailProof(addr) {
+  const sent = expectStatus(await call('POST', '/auth/seller/email/code', { body: { email: addr } }), 200);
+  let code = sent.devCode;
+  if (!code) {
+    const rl = readline.createInterface({ input: stdin, output: stdout });
+    code = (await rl.question(`  Type the 6-digit code emailed to ${addr}: `)).trim();
+    rl.close();
+  }
+  return expectStatus(await call('POST', '/auth/seller/email/verify', { body: { email: addr, code } }), 200).proof;
+}
+
 await step('Seller signs up (with the first shop)', async () => {
   const data = expectStatus(
     await call('POST', '/auth/seller/register', {
       body: {
-        account: { email, password },
+        account: { email, password, emailProof: await emailProof(email) },
         details: { fullName: 'Smoke Tester', idNumber: '29384756', kraPin: '', phone, businessType: 'individual', businessName: '', businessRegNo: '' },
-        shop: { name: shopName, areaId: 'westlands', description: 'A shop made by the smoke test' },
+        shop: { name: shopName, description: 'A shop made by the smoke test', lat: -1.2673, lng: 36.8118, placeName: 'Westlands', placeTown: 'Nairobi' },
         consent: { terms: true, data: true, accurate: true },
       },
     }),
@@ -185,17 +233,17 @@ await step('Photo upload permission', async () => {
 
 // ---- Buyer ----
 await step('Buyer asks for a code', async () => {
-  expectStatus(await call('POST', '/auth/buyer/request-otp', { body: { phone } }), 200);
+  expectStatus(await call('POST', '/auth/buyer/request-otp', { body: { email: buyerEmail } }), 200);
 });
 
-console.log(`\n   Look at the SERVER terminal. Find the line "[DEV SMS] To +254${phone.slice(1)}: Your VibeYetu code is XXXXXX".`);
+console.log(`\n   The code was emailed to ${buyerEmail} (in console mode, look in the SERVER terminal for the line "[DEV EMAIL] To ${buyerEmail}").`);
 const rl = readline.createInterface({ input: stdin, output: stdout });
 const code = (await rl.question('   Type the 6 digits here and press Enter: ')).trim();
 rl.close();
 console.log('');
 
 await step('Buyer signs in with the code', async () => {
-  const data = expectStatus(await call('POST', '/auth/buyer/verify-otp', { body: { phone, code } }), 200);
+  const data = expectStatus(await call('POST', '/auth/buyer/verify-otp', { body: { email: buyerEmail, code } }), 200);
   check(data.token, 'no token came back');
   buyerToken = data.token;
 });
@@ -358,13 +406,13 @@ await step('Seller: closing the shop needs the right password (the shop is NOT c
 });
 
 // ---- Payout method, shop photo ----
-await step('Seller: a payout method cannot be saved without a code from SMS (the code is printed in the server terminal)', async () => {
+await step('Seller: a payout method cannot be saved without a code from email', async () => {
   const mine = { method: 'till', till: '5123456' };
   const empty = expectStatus(await call('GET', `/seller/shops/${shopId}/payout`, { token: sellerToken }), 200);
   check(empty.payout === null, 'a new shop should have no payout method yet');
   expectStatus(await call('POST', `/seller/shops/${shopId}/payout/code`, { token: sellerToken, body: { method: 'till', till: '12' } }), 400);
   const sent = expectStatus(await call('POST', `/seller/shops/${shopId}/payout/code`, { token: sellerToken, body: mine }), 200);
-  check(/^0\d•• ••• \d{3}$/.test(sent.phone), `the masked phone looks wrong: ${sent.phone}`);
+  check(/^.•+@.+$/.test(sent.sentTo), `the masked email looks wrong: ${sent.sentTo}`);
   expectStatus(await call('PUT', `/seller/shops/${shopId}/payout`, { token: sellerToken, body: mine }), 410); // not verified yet
   expectStatus(await call('POST', `/seller/shops/${shopId}/payout/verify`, { token: sellerToken, body: { code: '000000' } }), 400);
 });

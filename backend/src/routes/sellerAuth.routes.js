@@ -7,12 +7,13 @@ import { z } from 'zod';
 import { registerSeller, loginSeller, getSeller, listOwnShops } from '../services/seller.service.js';
 import { signSellerToken, requireSeller } from '../middleware/sellerAuth.js';
 import { handle, parseBody, limiter } from '../utils/routeHelpers.js';
+import { checkEmailProof, requestEmailCode, verifyEmailCode } from '../services/emailVerify.service.js';
 import { completeForgot, requestForgot, verifyForgot } from '../services/forgotPassword.service.js';
 
 const router = Router();
 
 const registerSchema = z.object({
-  account: z.object({ email: z.string(), password: z.string() }),
+  account: z.object({ email: z.string(), password: z.string(), emailProof: z.string() }),
   details: z.object({
     fullName: z.string(),
     idNumber: z.string(),
@@ -24,21 +25,36 @@ const registerSchema = z.object({
   }),
   shop: z.object({
     name: z.string(),
-    areaId: z.string(),
     description: z.string().optional(),
     lat: z.number().optional(),
     lng: z.number().optional(),
+    placeName: z.string().optional(),
+    placeTown: z.string().optional(),
   }),
   consent: z.object({ terms: z.boolean(), data: z.boolean(), accurate: z.boolean() }),
 });
 
 const loginSchema = z.object({ email: z.string(), password: z.string() });
 
+// Step 1 of sign-up: prove the email is real.
+//   POST /email/code    { email }         -> a 6-digit code is emailed
+//   POST /email/verify  { email, code }   -> { proof }. Send the proof with the registration.
+const emailOnly = z.object({ email: z.string('Enter your email.').min(3, 'Enter your email.').max(200) });
+const emailCode = emailOnly.extend({ code: z.string('Enter the 6-digit code.').min(1, 'Enter the 6-digit code.').max(12) });
+router.post('/email/code', limiter(8, 'Too many code requests. Please wait a few minutes.'), handle(async (req, res) => {
+  res.json(await requestEmailCode(parseBody(emailOnly, req.body).email));
+}));
+router.post('/email/verify', limiter(20, 'Too many tries. Please wait a few minutes.'), handle(async (req, res) => {
+  const b = parseBody(emailCode, req.body);
+  res.json(await verifyEmailCode(b.email, b.code));
+}));
+
 router.post(
   '/register',
   limiter(10, 'Too many sign-up attempts. Please try again later.'),
   handle(async (req, res) => {
     const input = parseBody(registerSchema, req.body, 'Please fill in every field and try again.');
+    checkEmailProof(input.account.email, input.account.emailProof); // the email must have been verified first
     const { seller, shop } = await registerSeller(input);
     res.status(201).json({ token: await signSellerToken(seller), seller, shop });
   })

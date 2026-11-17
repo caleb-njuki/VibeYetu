@@ -250,7 +250,7 @@ export default function PayoutMethods({ email, shopId, onChange }) {
 
           <p className="flex items-start gap-2 text-xs text-ink-mute">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-vibe" aria-hidden="true" />
-            To keep your money safe, we send a {OTP_LENGTH}-digit code to the phone you signed up with before any change is saved.
+            To keep your money safe, we send a {OTP_LENGTH}-digit code to the email you signed up with before any change is saved.
           </p>
 
           {error && (
