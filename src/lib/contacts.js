@@ -1,18 +1,8 @@
 // Who may see whose phone number, in one place.
 // - A buyer's name, phone and delivery location are shown to the shop they ordered from, on that order only.
 // - A shop's contact phone is shown to buyers who have an order with that shop, on that order only.
-// Kept in the browser for the demo. On the backend the same two rules are enforced on the server,
-// so the number is only sent to the person who is allowed to see it.
-import { getShopSettings } from "./shopProfile.js";
-import { localPhone, normalizePhone } from "./format.js";
-
-// Demo only: the four sample shops have no saved phone number. Remove this when the backend arrives.
-const DEMO_SHOP_PHONES = { s1: "254700000001", s2: "254700000002", s3: "254700000003", s4: "254700000004" };
-
-// The number buyers call for this shop, or null when the seller has not added one.
-export function sellerPhoneFor(shopId) {
-  return normalizePhone(getShopSettings(shopId).private.phone || "") || DEMO_SHOP_PHONES[shopId] || null;
-}
+// The server only sends the number to the person who is allowed to see it.
+import { localPhone } from "./format.js";
 
 // A normalized number as a link target: 254712345678 -> tel:+254712345678
 export const telHref = (normalized) => `tel:+${String(normalized).replace(/\D/g, "")}`;

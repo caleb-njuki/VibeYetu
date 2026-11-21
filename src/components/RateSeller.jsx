@@ -1,16 +1,18 @@
 import { useState } from "react";
 import Button from "./Button.jsx";
 import StarInput, { Stars } from "./StarInput.jsx";
-import { addRating, findRating, skipRating, wasSkipped } from "../lib/ratings.js";
+import { useOrders } from "../context/OrdersContext.jsx";
+import { rateOrder, skipOrderRating } from "../services/api.js";
 
 // Shown after an order is completed. Buyers can rate the seller or skip.
 export default function RateSeller({ order }) {
-  const [, setVersion] = useState(0);
+  const { refresh } = useOrders();
+  const [busy, setBusy] = useState(false);
   const [stars, setStars] = useState(0);
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
-  const [skipped, setSkipped] = useState(() => wasSkipped(order.id));
-  const existing = findRating(order.id, "shop", order.shopId);
+  const [skipped, setSkipped] = useState(Boolean(order.ratingSkipped));
+  const existing = (order.ratings || []).find((x) => x.kind === "shop") || null;
 
   if (existing) {
     return (
@@ -30,14 +32,23 @@ export default function RateSeller({ order }) {
     );
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
+    if (busy) return;
     if (stars === 0) {
       setError("Tap a star to rate.");
       return;
     }
-    addRating({ orderId: order.id, kind: "shop", targetId: order.shopId, stars, comment });
-    setVersion((v) => v + 1);
+    setBusy(true);
+    try {
+      await rateOrder(order.id, { kind: "shop", stars, comment: comment.trim() });
+      setError("");
+      await refresh();
+    } catch (err) {
+      setError(err.message || "Could not send your rating. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -62,15 +73,15 @@ export default function RateSeller({ order }) {
         </p>
       )}
       <div className="flex gap-2">
-        <Button type="submit" size="sm">
+        <Button type="submit" size="sm" disabled={busy}>
           Send rating
         </Button>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => {
-            skipRating(order.id);
             setSkipped(true);
+            skipOrderRating(order.id).catch(() => {});
           }}
         >
           Skip

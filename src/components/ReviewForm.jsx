@@ -35,13 +35,13 @@ export default function ReviewForm({ role, report, onSubmit }) {
     );
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     if (details.trim().length < 10) {
       setError("Please tell us what happened in a few words.");
       return;
     }
-    const result = onSubmit({ reason, details: details.trim() });
+    const result = await onSubmit({ reason, details: details.trim() });
     setError(result && !result.ok ? result.message : "");
   }
 

@@ -38,7 +38,7 @@ export async function requestEmailCode(rawEmail) {
   );
   await sendEmail(email, 'Your VibeYetu verification code', `Your VibeYetu code is ${code}. It works for 10 minutes. If you did not ask for it, ignore this email.`);
   // In console mode (testing on one computer, never in production) the code is also returned, so the test scripts can run on their own.
-  return { sentTo: email, resendInMs: RESEND_MS, ...(config.email.mode === 'console' ? { devCode: code } : {}) };
+  return { sentTo: email, resendInMs: RESEND_MS, ...(config.email.mode === 'test' ? { devCode: code } : {}) };
 }
 
 export async function verifyEmailCode(rawEmail, rawCode) {

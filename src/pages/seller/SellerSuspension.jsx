@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
-import { useOrders } from "../../context/OrdersContext.jsx";
+import useSuspension from "../../hooks/useSuspension.js";
+import { sendSuspensionReport } from "../../services/sellerApi.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { STRIKE_LIMIT } from "../../lib/strikes.js";
-import { getShopFlags } from "../../lib/shopFlags.js";
-import { REPORT_REASONS, currentReport, submitSuspensionReport } from "../../lib/suspensions.js";
 import { SHOPS_CHANGED } from "../../lib/sellers.js";
 import { formatWhen } from "../../lib/orders.js";
 import { formatKES } from "../../lib/format.js";
@@ -14,15 +13,26 @@ const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text
 
 export default function SellerSuspension() {
   const { seller } = useSeller();
-  const { orders } = useOrders();
-  const flags = getShopFlags(seller.shopId);
-  const report = currentReport(seller.shopId);
-  const [reason, setReason] = useState(report?.reason || "");
-  const [details, setDetails] = useState(report?.details || "");
-  const [plan, setPlan] = useState(report?.plan || "");
+  const flags = useSuspension(seller.shopId);
+  const report = flags.report;
+  const REPORT_REASONS = flags.reasons || [];
+  const [reason, setReason] = useState("");
+  const [details, setDetails] = useState("");
+  const [plan, setPlan] = useState("");
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
-  const [, refresh] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  // Fill the form with the earlier report once it has loaded.
+  useEffect(() => {
+    if (report) {
+      setReason(report.reason || "");
+      setDetails(report.details || "");
+      setPlan(report.plan || "");
+    }
+  }, [report?.id]);
+
+  if (flags.loading) return <p className="py-16 text-center text-sm text-ink-mute">Loading...</p>;
 
   if (!flags.suspended) {
     return (
@@ -34,16 +44,22 @@ export default function SellerSuspension() {
     );
   }
 
-  const failed = (flags.suspendOrderIds || []).map((id) => orders.find((o) => o.id === id)).filter(Boolean);
+  const failed = flags.orders || [];
 
-  function onSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault();
-    const result = submitSuspensionReport(seller.shopId, { reason, details, plan });
-    if (!result.ok) return setError(result.message);
-    setError("");
-    setSent(true);
-    refresh((n) => n + 1);
-    window.dispatchEvent(new Event(SHOPS_CHANGED));
+    setBusy(true);
+    try {
+      await sendSuspensionReport(seller.shopId, { reason, details, plan });
+      setError("");
+      setSent(true);
+      await flags.refresh();
+      window.dispatchEvent(new Event(SHOPS_CHANGED));
+    } catch (err) {
+      setError(err.message || "Could not send the report. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -51,7 +67,7 @@ export default function SellerSuspension() {
       <div className="space-y-1">
         <h1 className="text-3xl font-extrabold">Suspension report</h1>
         <p className="text-sm text-ink-mute">
-          {flags.suspendKind === "auto"
+          {flags.kind === "auto"
             ? `Your shop was suspended automatically because ${failed.length || STRIKE_LIMIT} orders in a row were not fulfilled.`
             : "VibeYetu support suspended your shop."}{" "}
           Tell us what happened. Your shop goes live again once support has read your report and verified it.
@@ -120,7 +136,7 @@ export default function SellerSuspension() {
             {error}
           </p>
         )}
-        <Button type="submit">{report ? "Send updated report" : "Send report"}</Button>
+        <Button type="submit" disabled={busy}>{report ? "Send updated report" : "Send report"}</Button>
       </form>
     </div>
   );

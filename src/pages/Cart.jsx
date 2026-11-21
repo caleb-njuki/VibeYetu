@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ShieldCheck, Trash2 } from "lucide-react";
 import Button from "../components/Button.jsx";
 import QtyStepper from "../components/QtyStepper.jsx";
+import ProductImage from "../components/ProductImage.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { formatKES } from "../lib/format.js";
 import { formatSize } from "../lib/sizes.js";
@@ -48,11 +49,10 @@ export default function Cart() {
                   <li key={item.key || item.id} className="flex items-center gap-3 py-3">
                     <Link
                       to={`/product/${item.id}`}
-                      className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl text-3xl"
-                      style={{ background: `hsl(${item.hue ?? 220} 60% 90%)` }}
+                      className="block h-16 w-16 shrink-0 overflow-hidden rounded-xl"
                       aria-label={item.name}
                     >
-                      {item.emoji || "🛍️"}
+                      <ProductImage product={{ ...item, emoji: item.emoji || "🛍️" }} alt="" className="h-full w-full" emojiClass="text-3xl" />
                     </Link>
                     <div className="min-w-0 flex-1 space-y-1">
                       <Link to={`/product/${item.id}`} className="line-clamp-1 font-semibold hover:text-vibe">

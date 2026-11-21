@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import Button from "../../components/Button.jsx";
-import { useOrders } from "../../context/OrdersContext.jsx";
-import { listAllShops } from "../../services/api.js";
-import { getShopFlags, reopenShop, setShopFlags, suspendShop } from "../../lib/shopFlags.js";
-import { SHOPS_CHANGED, ownerEmailOf, sellerSummary, ownedShops } from "../../lib/sellers.js";
-import { addNotice, currentReport, reviewSuspension } from "../../lib/suspensions.js";
+import { listAdminShops, reopenShopAdmin, reviewShop, suspendShopAdmin, unverifyShop } from "../../services/adminApi.js";
 import { formatWhen } from "../../lib/orders.js";
 import { localPhone } from "../../lib/format.js";
 
@@ -16,12 +12,9 @@ const row = (label, value) =>
     </div>
   ) : null;
 
-// What support may see about the seller behind a shop. The ID number is masked here.
-function SellerDetails({ shopId }) {
-  const email = ownerEmailOf(shopId);
-  const info = email ? sellerSummary(email) : null;
-  if (!info) return <p className="text-xs text-ink-mute">No seller details on file (sample shop).</p>;
-  const others = ownedShops(email).filter((x) => x.id !== shopId);
+// What support may see about the seller behind a shop. The ID number is masked.
+function SellerDetails({ seller: info }) {
+  if (!info) return <p className="text-xs text-ink-mute">No seller details on file.</p>;
   return (
     <dl className="space-y-1 text-xs">
       {row("Seller", info.fullName)}
@@ -32,32 +25,39 @@ function SellerDetails({ shopId }) {
       {row("Sells as", info.businessType ? (info.businessType === "registered" ? "Registered business" : "Individual trader") : "")}
       {row("Business name", info.businessName)}
       {row("Registration no.", info.businessRegNo)}
-      {row("Agreed to terms", info.consentAt ? `${new Date(info.consentAt).toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" })} (version ${info.termsVersion})` : "")}
-      {row("Other shops", others.map((x) => x.name).join(", "))}
+      {row("Agreed to terms", info.consentedAt ? `${new Date(info.consentedAt).toLocaleString("en-KE", { dateStyle: "medium", timeStyle: "short" })} (version ${info.termsVersion})` : "")}
+      {row("Other shops", (info.otherShops || []).join(", "))}
     </dl>
   );
 }
 
 // Support reviews a suspended shop here. A shop goes live again only after the seller's report
 // has been read and verified. "Restore without a report" is for suspensions made by mistake.
-function SuspensionReview({ shopId, onDone }) {
-  const flags = getShopFlags(shopId);
-  const report = currentReport(shopId);
+function SuspensionReview({ shopId, suspension, onDone }) {
+  const flags = { suspendedAt: suspension?.at, suspendKind: suspension?.kind, suspendOrderIds: suspension?.orderIds };
+  const report = suspension?.report || null;
+  const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState("");
   const [confirm, setConfirm] = useState(null); // "reinstate" | "override"
   const [error, setError] = useState("");
   const ids = flags.suspendOrderIds || [];
 
-  function run(action, opts) {
-    const result = reviewSuspension(shopId, action, opts);
-    if (!result.ok) return setError(result.message);
-    setError("");
-    setAsking(false);
-    setConfirm(null);
-    setNote("");
-    window.dispatchEvent(new Event(SHOPS_CHANGED));
-    onDone();
+  async function run(action, opts) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await reviewShop(shopId, { action, ...opts });
+      setError("");
+      setAsking(false);
+      setConfirm(null);
+      setNote("");
+      onDone();
+    } catch (err) {
+      setError(err.message || "Could not save that. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -146,40 +146,34 @@ function SuspensionReview({ shopId, onDone }) {
 }
 
 export default function AdminShops() {
-  const { orders } = useOrders();
   const [shops, setShops] = useState(null);
   const [reload, setReload] = useState(0);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let live = true;
-    listAllShops()
+    listAdminShops()
       .then((list) => {
         if (live) setShops(list);
       })
-      .catch(() => {
-        if (live) setShops([]);
+      .catch((err) => {
+        if (live) {
+          setShops((cur) => cur ?? []);
+          setError(err.message || "Could not load shops.");
+        }
       });
     return () => {
       live = false;
     };
   }, [reload]);
 
-  function change(shopId, flags) {
-    setShopFlags(shopId, flags);
-    setReload((n) => n + 1);
-  }
-
-  // Support puts back a shop its owner closed, for example when the owner asks to reopen it.
-  function reopen(shopId) {
-    reopenShop(shopId);
-    window.dispatchEvent(new Event(SHOPS_CHANGED));
-    setReload((n) => n + 1);
-  }
-
-  function suspend(shopId) {
-    suspendShop(shopId, "admin");
-    addNotice(shopId, { text: "VibeYetu support suspended your shop. Write your report so support can review it." });
-    window.dispatchEvent(new Event(SHOPS_CHANGED));
+  async function act(work) {
+    setError("");
+    try {
+      await work();
+    } catch (err) {
+      setError(err.message || "Could not do that.");
+    }
     setReload((n) => n + 1);
   }
 
@@ -187,9 +181,10 @@ export default function AdminShops() {
     <div className="space-y-5">
       <div className="space-y-1">
         <h1 className="text-3xl font-extrabold">Shops</h1>
-        <p className="text-sm text-ink-mute">A suspended shop is hidden from buyers. It goes live again only after the seller writes a report and you verify it. Shops are suspended automatically after 3 unfulfilled orders in a row.</p>
+        <p className="text-sm text-ink-mute">A suspended shop is hidden from buyers. It goes live again only after the seller writes a report and you verify it. Shops are suspended automatically after 3 unfulfilled orders in a row. Sellers verify their own shop; you can remove the badge if you find problems.</p>
       </div>
 
+      {error && <p role="alert" className="text-sm font-semibold text-red-700">{error}</p>}
       {shops === null ? (
         <div className="h-40 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />
       ) : shops.length === 0 ? (
@@ -197,7 +192,7 @@ export default function AdminShops() {
       ) : (
         <ul className="divide-y divide-ink/10 rounded-2xl bg-white shadow-card">
           {shops.map((s) => {
-            const count = orders.filter((o) => o.shopId === s.id).length;
+            const count = s.orderCount;
             return (
               <li key={s.id} className="flex flex-wrap items-center gap-3 p-4">
                 <div className="min-w-0 flex-1">
@@ -219,26 +214,28 @@ export default function AdminShops() {
                       {s.closeDetails && <p className="whitespace-pre-wrap text-ink-soft">{s.closeDetails}</p>}
                     </div>
                   )}
-                  {s.suspended && !s.closed && <SuspensionReview shopId={s.id} onDone={() => setReload((n) => n + 1)} />}
+                  {s.suspended && !s.closed && <SuspensionReview shopId={s.id} suspension={s.suspension} onDone={() => setReload((n) => n + 1)} />}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-sm font-semibold text-vibe">Seller details</summary>
                     <div className="mt-2 rounded-xl bg-ivory-dark p-3">
-                      <SellerDetails shopId={s.id} />
+                      <SellerDetails seller={s.seller} />
                     </div>
                   </details>
                 </div>
                 <div className="flex gap-1">
                   {s.closed ? (
-                    <Button variant="outline" size="sm" onClick={() => reopen(s.id)}>
+                    <Button variant="outline" size="sm" onClick={() => act(() => reopenShopAdmin(s.id))}>
                       Reopen shop
                     </Button>
                   ) : (
                     <>
-                      <Button variant="outline" size="sm" onClick={() => change(s.id, { verified: !s.verified })}>
-                        {s.verified ? "Remove verified badge" : "Mark verified"}
-                      </Button>
+                      {s.verified && (
+                        <Button variant="outline" size="sm" onClick={() => act(() => unverifyShop(s.id))}>
+                          Remove verified badge
+                        </Button>
+                      )}
                       {!s.suspended && (
-                        <Button variant="ghost" size="sm" onClick={() => suspend(s.id)}>
+                        <Button variant="ghost" size="sm" onClick={() => act(() => suspendShopAdmin(s.id))}>
                           Suspend
                         </Button>
                       )}

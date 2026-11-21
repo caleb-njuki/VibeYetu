@@ -9,10 +9,10 @@ import ShopAvatar from "../components/ShopAvatar.jsx";
 import StarInput, { Stars } from "../components/StarInput.jsx";
 import { useCart } from "../context/CartContext.jsx";
 import { useOrders } from "../context/OrdersContext.jsx";
-import { useUserLocation } from "../context/LocationContext.jsx";
 import { getProduct, getRelated } from "../services/api.js";
-import { buyerModes, feeText } from "../lib/delivery.js";
-import { addRating, findRating, ratingsFor } from "../lib/ratings.js";
+import { buyerModes, deliveryCost, rateText } from "../lib/delivery.js";
+import { useUserLocation } from "../context/LocationContext.jsx";
+import { getProductReviews, rateOrder } from "../services/api.js";
 import { imageSrc } from "../lib/images.js";
 import { formatKES, fulfillmentLabel } from "../lib/format.js";
 import { formatDistance } from "../lib/geo.js";
@@ -31,8 +31,11 @@ function Fact({ icon: Icon, children }) {
 export default function Product() {
   const { id } = useParams();
   const { add } = useCart();
-  const { orders } = useOrders();
-  const { near } = useUserLocation();
+  const { orders, refresh: refreshOrders } = useOrders();
+  const [reviews, setReviews] = useState([]);
+  const [rating, setRating] = useState(false);
+  const place = useUserLocation();
+  const { near } = place;
   const [product, setProduct] = useState(null);
   const [related, setRelated] = useState({ fromShop: [], similar: [] });
   const [loading, setLoading] = useState(true);
@@ -85,6 +88,19 @@ export default function Product() {
   }, [refresh, id, near]);
 
   useEffect(() => {
+    if (!product?.id) return undefined;
+    let live = true;
+    getProductReviews(product.id)
+      .then((r) => {
+        if (live) setReviews(r.reviews || []);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [product?.id, refresh]);
+
+  useEffect(() => {
     if (!product) return undefined;
     let live = true;
     getRelated(product, near)
@@ -119,24 +135,33 @@ export default function Product() {
   const stockHere = sized ? (size ? product.sizes[size] || 0 : 0) : product.stock;
   const maxQty = Math.min(10, Math.max(sized && !size ? 1 : stockHere, 1));
   const photos = (product.images || []).filter((imgId) => imageSrc(imgId));
-  const reviews = ratingsFor("product", product.id);
   const eligibleOrder = orders.find(
-    (o) => o.status === "completed" && (o.items || []).some((i) => i.productId === product.id) && !findRating(o.id, "product", product.id)
+    (o) => o.status === "completed" && (o.items || []).some((i) => String(i.productId) === String(product.id)) && !(o.ratings || []).some((x) => x.kind === "product" && String(x.targetId) === String(product.id))
   );
   const delivers = shop ? buyerModes(shop).includes("delivery") : false;
+  const cost = shop && delivers ? deliveryCost(shop, place.location) : null;
   const shareUrl = `https://wa.me/?text=${encodeURIComponent(`${product.name} on VibeYetu: ${window.location.href}`)}`;
 
-  function submitRating(e) {
+  async function submitRating(e) {
     e.preventDefault();
+    if (rating) return;
     if (stars === 0) {
       setRateError("Tap a star to rate.");
       return;
     }
-    addRating({ orderId: eligibleOrder.id, kind: "product", targetId: product.id, stars, comment });
-    setStars(0);
-    setComment("");
-    setRateError("");
-    setRefresh((n) => n + 1);
+    setRating(true);
+    try {
+      await rateOrder(eligibleOrder.id, { kind: "product", productId: product.id, stars, comment: comment.trim() });
+      setStars(0);
+      setComment("");
+      setRateError("");
+      await refreshOrders();
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      setRateError(err.message || "Could not send your rating. Please try again.");
+    } finally {
+      setRating(false);
+    }
   }
 
   return (
@@ -307,11 +332,11 @@ export default function Product() {
             <ul className="space-y-2 rounded-2xl bg-white p-4 shadow-card">
               {shop && (
                 <Fact icon={Truck}>
-                  {delivers && shop.etaMinutes
-                    ? `Delivery in about ${shop.etaMinutes} minutes for ${feeText(shop.deliveryFee)}.`
-                    : delivers
-                      ? `Delivery costs ${feeText(shop.deliveryFee)}.`
-                      : `${buyerModes(shop).map(fulfillmentLabel).join(" and ")} only.`}
+                  {delivers
+                    ? `${shop.etaMinutes ? `Delivery in about ${shop.etaMinutes} minutes. ` : ""}Delivery costs ${rateText(shop.deliveryFee)}${
+                        cost && !cost.tooFar ? `, about ${formatKES(cost.fee)} to you` : ""
+                      }.`
+                    : `${buyerModes(shop).map(fulfillmentLabel).join(" and ")} only.`}
                   {delivers && buyerModes(shop).includes("pickup") && " Pickup is free."}
                 </Fact>
               )}
@@ -353,7 +378,7 @@ export default function Product() {
                 {rateError}
               </p>
             )}
-            <Button type="submit" size="sm">
+            <Button type="submit" size="sm" disabled={rating}>
               Send rating
             </Button>
           </form>
@@ -365,8 +390,8 @@ export default function Product() {
           </p>
         ) : (
           <ul className="space-y-3">
-            {reviews.slice(0, 8).map((r) => (
-              <li key={`${r.orderId}-${r.at}`} className="space-y-1 rounded-2xl bg-white p-4 shadow-card">
+            {reviews.slice(0, 8).map((r, i) => (
+              <li key={`${r.at}-${i}`} className="space-y-1 rounded-2xl bg-white p-4 shadow-card">
                 <div className="flex items-center justify-between gap-3">
                   <Stars value={r.stars} />
                   <span className="text-xs text-ink-mute">{formatWhen(r.at)}</span>

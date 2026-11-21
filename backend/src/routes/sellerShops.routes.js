@@ -34,10 +34,10 @@ const updateSchema = z.object({
   closes: time.optional(),
   fulfillment: z.array(z.enum(['delivery', 'pickup'])).optional(),
   deliveryFee: z
-    .number('Enter the delivery fee in whole shillings, for example 200.')
-    .int('Enter the delivery fee in whole shillings, for example 200.')
+    .number('Enter the delivery fee per kilometre in whole shillings, for example 10.')
+    .int('Enter the delivery fee per kilometre in whole shillings, for example 10.')
     .min(0, 'The delivery fee cannot be below 0.')
-    .max(1000, 'The delivery fee can be at most KES 1,000.')
+    .max(200, 'The delivery fee can be at most KES 200 per kilometre.')
     .nullable()
     .optional(),
   phone: z.string().optional(),

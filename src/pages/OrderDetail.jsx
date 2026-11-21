@@ -10,8 +10,8 @@ import useNow from "../hooks/useNow.js";
 import useNotifications from "../hooks/useNotifications.js";
 import { useOrders } from "../context/OrdersContext.jsx";
 import { WINDOW_MS, eventText, formatCountdown, formatWhen, getStatus, refundAmount, supportDeadline } from "../lib/orders.js";
-import { formatKES, fulfillmentLabel } from "../lib/format.js";
-import { hasBuyerDetails, orderLocation, sellerPhoneFor } from "../lib/contacts.js";
+import { formatKES, fulfillmentLabel, normalizePhone } from "../lib/format.js";
+import { hasBuyerDetails, orderLocation } from "../lib/contacts.js";
 import { formatSize } from "../lib/sizes.js";
 
 const REJECT_REASONS = ["Item is faulty", "Wrong item", "Not as described", "Damaged in transit"];
@@ -45,19 +45,19 @@ export default function OrderDetail() {
   }
 
   const status = getStatus(order, now);
-  const sellerPhone = sellerPhoneFor(order.shopId);
+  const sellerPhone = normalizePhone(order.sellerPhone || "");
   const bySeller = order.rejectedBy === "seller";
   const windowLeft = formatCountdown(order.acceptedAt + WINDOW_MS - now);
 
-  function onConfirm(e) {
+  async function onConfirm(e) {
     e.preventDefault();
-    const result = buyerConfirm(order.id, codeInput);
+    const result = await buyerConfirm(order.id, codeInput);
     setError(result.ok ? "" : result.message);
     if (result.ok) setCodeInput("");
   }
 
-  function onReject() {
-    const result = buyerReject(order.id, reason);
+  async function onReject() {
+    const result = await buyerReject(order.id, reason);
     if (!result.ok) setError(result.message);
     else setRejecting(false);
   }
@@ -209,7 +209,7 @@ export default function OrderDetail() {
               Refund requested. It will be sent as soon as the seller confirms the returned item.
             </p>
           ) : (
-            <Button onClick={() => requestRefund(order.id)}>Request refund</Button>
+            <Button onClick={async () => { const r = await requestRefund(order.id); if (!r.ok) setError(r.message); }}>Request refund</Button>
           )}
         </section>
       )}

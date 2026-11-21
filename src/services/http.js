@@ -1,7 +1,8 @@
 // The one place that talks to the backend. Every page goes through request().
 // In development, Vite forwards /api to the backend on port 5000 (see vite.config.js).
 // For a built site, set VITE_API_URL to the backend address, for example https://api.example.com
-const BASE = `${(import.meta.env?.VITE_API_URL || "").replace(/\/$/, "")}/api`;
+// A trailing "/api" in VITE_API_URL is ignored, so both http://localhost:5000 and http://localhost:5000/api work.
+const BASE = `${(import.meta.env?.VITE_API_URL || "").replace(/\/+$/, "").replace(/\/api$/, "")}/api`;
 
 // Each kind of person has their own saved token.
 const KEYS = { buyer: "vibeyetu_token_buyer", seller: "vibeyetu_token_seller", admin: "vibeyetu_token_admin" };
@@ -72,6 +73,7 @@ export async function request(method, path, { body, auth } = {}) {
 
 export const get = (path, auth) => request("GET", path, { auth });
 export const post = (path, body, auth) => request("POST", path, { body: body ?? {}, auth });
+export const put = (path, body, auth) => request("PUT", path, { body: body ?? {}, auth });
 export const patch = (path, body, auth) => request("PATCH", path, { body: body ?? {}, auth });
 export const del = (path, auth) => request("DELETE", path, { auth });
 
@@ -80,4 +82,3 @@ export function nearQuery(near) {
   if (!near) return "";
   return `lat=${near.lat}&lng=${near.lng}&radiusKm=${near.radiusKm}`;
 }
-

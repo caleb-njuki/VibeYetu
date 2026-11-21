@@ -51,6 +51,7 @@ export function CartProvider({ children }) {
               name: product.name,
               price: product.price,
               emoji: product.emoji,
+              images: (product.images || []).slice(0, 1), // the main photo, shown in the cart and at checkout
               hue: product.hue,
               shopId: product.shopId,
               shopName: product.shop?.name || "Shop",

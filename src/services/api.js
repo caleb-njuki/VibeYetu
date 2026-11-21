@@ -1,5 +1,4 @@
 // What buyers see and do. Every function asks the real server (see http.js).
-// Checkout and orders are connected in the next batch (placeOrders and payOrders below).
 import { ApiError, get, nearQuery, post } from "./http.js";
 import { listProducts } from "./sellerApi.js";
 
@@ -55,24 +54,42 @@ export async function getHome(near) {
   return get(withNear("/home", near));
 }
 
-// ---- Sign in (phone + one-time code by SMS) ----
-export async function requestOtp(phone) {
-  return post("/auth/buyer/request-otp", { phone });
+// ---- Sign in (email + one-time code sent by email) ----
+export async function requestOtp(email) {
+  return post("/auth/buyer/request-otp", { email });
 }
 
-// Returns { token, isNewBuyer, buyer: { id, phone } }
-export async function verifyOtp(phone, code) {
-  return post("/auth/buyer/verify-otp", { phone, code });
+// Returns { token, isNewBuyer, buyer: { id, email } }
+export async function verifyOtp(email, code) {
+  return post("/auth/buyer/verify-otp", { email, code });
 }
 
-// ---- Checkout: connected in the next batch ----
-const NEXT = "Checkout is being connected to M-Pesa. Please try again after the next update.";
-export async function placeOrders() {
-  throw new Error(NEXT);
+// ---- Checkout and orders (the buyer must be signed in) ----
+// Step 1: hold the items. Returns { id, total, expiresAt, orders:[...] }
+export async function startCheckout({ items, modes, contact }) {
+  const data = await post(
+    "/checkout",
+    {
+      items: items.map((i) => ({ productId: String(i.id), qty: i.qty, ...(i.size ? { size: i.size } : {}) })),
+      modes,
+      contact,
+    },
+    "buyer"
+  );
+  return data.checkout;
 }
-export async function payOrders() {
-  throw new Error(NEXT);
-}
+// Step 2: send the M-Pesa prompt to the buyer's phone. Returns { status: "pending" | "paid", message }
+export const payCheckout = (groupId, phone) => post(`/checkout/${groupId}/pay`, { method: "mpesa", phone }, "buyer");
+// Step 3: ask how it went, every few seconds. { status: "unpaid" | "pending" | "paid" | "failed" | "expired", message, orders? }
+export const getCheckoutStatus = (groupId) => get(`/checkout/${groupId}/status`, "buyer");
+
+export const listBuyerNotifications = () => get("/notifications", "buyer");
+export const readBuyerNotifications = (body) => post("/notifications/read", body, "buyer");
+export const listMyOrders = async () => (await get("/orders", "buyer")).orders;
+export const confirmReceipt = (orderId, code) => post(`/orders/${orderId}/confirm`, { code }, "buyer");
+export const rejectDelivery = (orderId, reason) => post(`/orders/${orderId}/reject`, { reason }, "buyer");
+export const askRefund = (orderId) => post(`/orders/${orderId}/refund`, {}, "buyer");
+export const sendBuyerReport = (orderId, report) => post(`/orders/${orderId}/report`, report, "buyer");
 
 // ---- Old names the My Shop and staff pages still import. Removed when those pages move over. ----
 export const getShopCatalog = (shopId) => listProducts(shopId);
@@ -82,3 +99,8 @@ export async function listShops() {
 export async function listAllShops() {
   return [];
 }
+
+// ---- Ratings ----
+export const rateOrder = (orderId, body) => post(`/orders/${orderId}/rating`, body, "buyer");
+export const skipOrderRating = (orderId) => post(`/orders/${orderId}/rating-skip`, {}, "buyer");
+export const getProductReviews = (productId) => get(`/products/${encodeURIComponent(productId)}/reviews?limit=8`);

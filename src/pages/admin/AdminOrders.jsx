@@ -1,22 +1,38 @@
 import { useState } from "react";
 import StatusBadge from "../../components/StatusBadge.jsx";
-import useNow from "../../hooks/useNow.js";
-import { useOrders } from "../../context/OrdersContext.jsx";
-import { STATUS, formatWhen, getStatus } from "../../lib/orders.js";
+import { useEffect } from "react";
+import { listAdminOrders } from "../../services/adminApi.js";
+import { STATUS, formatWhen } from "../../lib/orders.js";
 import { formatKES, fulfillmentLabel } from "../../lib/format.js";
 
 const inputCls = "rounded-full border border-ink/20 bg-white px-4 py-2 text-sm";
 
 export default function AdminOrders() {
-  const { orders } = useOrders();
-  const now = useNow(60000);
+  const [orders, setOrders] = useState(null);
+  const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
 
-  const q = query.trim().toLowerCase();
-  const rows = orders
-    .map((o) => ({ o, status: getStatus(o, now) }))
-    .filter((r) => (!status || r.status === status) && (!q || r.o.id.toLowerCase().includes(q) || r.o.shopName.toLowerCase().includes(q)));
+  // Ask the server again when the filter changes (a short pause while typing).
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(() => {
+      listAdminOrders({ status, q: query })
+        .then((list) => {
+          if (live) {
+            setOrders(list);
+            setError("");
+          }
+        })
+        .catch((err) => live && setError(err.message || "Could not load orders."));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [status, query]);
+
+  const rows = (orders || []).map((o) => ({ o, status: o.status }));
 
   return (
     <div className="space-y-5">
@@ -47,7 +63,10 @@ export default function AdminOrders() {
         />
       </div>
 
-      {rows.length === 0 ? (
+      {error && <p role="alert" className="text-sm font-semibold text-red-700">{error}</p>}
+      {orders === null ? (
+        <div className="h-40 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />
+      ) : rows.length === 0 ? (
         <p className="rounded-2xl bg-white p-8 text-center text-ink-mute shadow-card">No orders match.</p>
       ) : (
         <ul className="divide-y divide-ink/10 rounded-2xl bg-white shadow-card">

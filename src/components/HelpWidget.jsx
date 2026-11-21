@@ -59,7 +59,8 @@ export default function HelpWidget() {
     setMessages((m) => [...m, userMsg]);
     setInput("");
     setBusy(true);
-    const reply = await getReply(q, lang);
+    const history = messages.map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text }));
+    const reply = await getReply(q, lang, history);
     idRef.current += 1;
     setMessages((m) => [...m, { id: idRef.current, role: "bot", text: reply }]);
     setBusy(false);

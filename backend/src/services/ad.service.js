@@ -10,7 +10,7 @@ import {
 } from '../utils/adRules.js';
 import { imageUrl, isOwnImage } from './cloudinary.service.js';
 import { config } from '../config/env.js';
-import { normalizePhone } from '../utils/phone.js';
+import { normalizeTyped } from '../utils/phone.js';
 import { stkPush } from './daraja.service.js';
 import { queueAdRefund } from './payoutQueue.service.js';
 import { chargeAdvertiser, refundAdvertiser } from './payment.service.js';
@@ -94,7 +94,7 @@ export async function createAd(shopId, input) {
   const daraja = config.payments.mode === 'daraja';
   let phone = null; // 254712345678, the phone that gets the M-Pesa prompt
   if (daraja) {
-    const normalized = normalizePhone(String(input.phone ?? ''));
+    const normalized = normalizeTyped(String(input.phone ?? ''));
     if (!normalized || !normalized.startsWith('+254')) throw httpError(400, 'Enter the M-Pesa phone number you want to pay from.');
     phone = normalized.slice(1);
   }

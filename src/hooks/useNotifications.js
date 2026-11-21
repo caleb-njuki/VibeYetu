@@ -1,79 +1,77 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOrders } from "../context/OrdersContext.jsx";
-import useNow from "./useNow.js";
-import { buildNotifications } from "../lib/orders.js";
-import { listNotices } from "../lib/suspensions.js";
-import { SHOPS_CHANGED } from "../lib/sellers.js";
+import { getToken } from "../services/http.js";
+import { listBuyerNotifications, readBuyerNotifications } from "../services/api.js";
+import { listShopNotifications, readShopNotifications } from "../services/sellerApi.js";
 
-const MAX_STORED = 500;
+const EVERY_MS = 20000;
 
-function load(key) {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-// Notifications for one side of the marketplace. role is "buyer" or "seller".
-// Sellers pass their shopId so they only see their own orders.
+// The bell for one side of the marketplace. role is "buyer" or "seller".
+// The server builds the list and remembers what has been read, so it is the same on every device.
 export default function useNotifications(role, shopId = "me") {
-  const { orders } = useOrders();
-  const now = useNow(60000);
-  const key = `vibeyetu_read_${role}_${shopId}`;
-  const [read, setRead] = useState(() => load(key));
-  const [tick, setTick] = useState(0);
+  const { orders, shopOrders } = useOrders();
+  const [items, setItems] = useState([]);
+  const signedIn = Boolean(getToken(role));
 
-  // Shop notices (suspension, review decisions) can arrive from another page or tab.
-  useEffect(() => {
-    const bump = () => setTick((n) => n + 1);
-    window.addEventListener(SHOPS_CHANGED, bump);
-    window.addEventListener("storage", bump);
-    return () => {
-      window.removeEventListener(SHOPS_CHANGED, bump);
-      window.removeEventListener("storage", bump);
-    };
-  }, []);
+  const load = useCallback(async () => {
+    if (!getToken(role) || (role === "seller" && (!shopId || shopId === "me"))) return;
+    try {
+      const data = role === "seller" ? await listShopNotifications(shopId) : await listBuyerNotifications();
+      setItems(data.items || []);
+    } catch {
+      // Keep what is on screen. The next refresh tries again.
+    }
+  }, [role, shopId]);
 
   useEffect(() => {
-    setRead(load(key));
-  }, [key]);
+    setItems([]);
+    load();
+    const timer = setInterval(() => {
+      if (!document.hidden) load();
+    }, EVERY_MS);
+    return () => clearInterval(timer);
+  }, [load, signedIn]);
 
-  const items = useMemo(() => {
-    const fromOrders = buildNotifications(orders, role, role === "seller" ? shopId : null, now);
-    if (role !== "seller") return fromOrders;
-    const notices = listNotices(shopId).map((n) => ({ id: n.id, orderId: null, at: n.at, text: n.text, href: n.href }));
-    return [...fromOrders, ...notices].sort((a, b) => b.at - a.at);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick makes the notices reload
-  }, [orders, role, shopId, now, tick]);
-  const readSet = useMemo(() => new Set(read), [read]);
-  const unread = useMemo(() => items.filter((n) => !readSet.has(n.id)), [items, readSet]);
+  // A fresh list of orders usually means something changed, so look again.
+  const watched = role === "seller" ? shopOrders : orders;
+  useEffect(() => {
+    load();
+  }, [watched, load]);
+
+  const send = useCallback(
+    async (body) => {
+      try {
+        const data = role === "seller" ? await readShopNotifications(shopId, body) : await readBuyerNotifications(body);
+        setItems(data.items || []);
+      } catch {
+        load();
+      }
+    },
+    [role, shopId, load]
+  );
+
+  const unread = useMemo(() => items.filter((n) => !n.read), [items]);
   const unreadOrderIds = useMemo(() => new Set(unread.map((n) => n.orderId)), [unread]);
-
-  const markIds = useCallback(
+  const mark = useCallback(
     (ids) => {
       if (ids.length === 0) return;
-      setRead((prev) => {
-        const next = [...new Set([...prev, ...ids])].slice(-MAX_STORED);
-        try {
-          localStorage.setItem(key, JSON.stringify(next));
-        } catch {
-          // Storage unavailable: read marks last only for this visit.
-        }
-        return next;
-      });
+      setItems((list) => list.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n)));
+      send({ ids });
     },
-    [key]
+    [send]
   );
 
   return {
     items,
     unreadCount: unread.length,
     unreadOrderIds,
-    isUnread: (id) => !readSet.has(id),
-    markRead: (id) => markIds([id]),
-    markAllRead: () => markIds(unread.map((n) => n.id)),
-    markOrderRead: (orderId) => markIds(unread.filter((n) => n.orderId === orderId).map((n) => n.id)),
+    isUnread: (id) => items.some((n) => n.id === id && !n.read),
+    markRead: (id) => mark([id]),
+    markAllRead: () => {
+      if (unread.length === 0) return;
+      setItems((list) => list.map((n) => ({ ...n, read: true })));
+      send({ all: true });
+    },
+    markOrderRead: (orderId) => mark(unread.filter((n) => n.orderId === orderId).map((n) => n.id)),
   };
 }

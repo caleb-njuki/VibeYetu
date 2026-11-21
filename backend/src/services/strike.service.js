@@ -1,5 +1,6 @@
 // Automatic suspension: a shop with 3 unfulfilled orders in a row is suspended.
 import { STRIKE_LIMIT, streakOf } from '../utils/strikes.js';
+import { pool } from '../config/db.js';
 import { addShopNotice } from './notification.service.js';
 
 // Call inside a transaction, after anything that can make an order unfulfilled. Returns true if the shop was suspended.
@@ -32,4 +33,20 @@ export async function evaluateShop(c, shopId) {
     c
   );
   return true;
+}
+
+// How many unfulfilled orders in a row the shop has now (for the warning on the seller's Orders page).
+export async function currentStreak(shopId, db = pool) {
+  const shop = (await db.query('SELECT reinstated_at FROM shops WHERE id = $1', [shopId])).rows[0];
+  const { rows } = await db.query(
+    `SELECT id, status, unanswered, rejected_by, seller_confirmed,
+            (extract(epoch from paid_at) * 1000)::float8 AS paid_ms,
+            (extract(epoch from accepted_at) * 1000)::float8 AS accepted_ms
+     FROM orders
+     WHERE shop_id = $1 AND status NOT IN ('awaiting_payment', 'expired')
+       AND paid_at > COALESCE($2::timestamptz, '-infinity'::timestamptz)
+     ORDER BY paid_at DESC, id DESC LIMIT 60`,
+    [shopId, shop?.reinstated_at ?? null]
+  );
+  return streakOf(rows.reverse()).streak;
 }

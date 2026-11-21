@@ -64,7 +64,7 @@ export function suggestShopNames(raw, place) {
 
 // ---- Validation, shared by the screens ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ID_RE = /^\d{7,8}$/; // Kenyan national ID numbers have 7 or 8 digits
+const ID_RE = /^\d{7,9}$/; // Kenyan national ID numbers have 7 to 9 digits
 const KRA_RE = /^[AP]\d{9}[A-Z]$/i; // A for individuals, P for companies
 
 export function validateAccountStep({ email, password, confirm }) {
@@ -77,9 +77,9 @@ export function validateAccountStep({ email, password, confirm }) {
 export function validateDetailsStep(d) {
   const fullName = String(d.fullName || "").replace(/\s+/g, " ").trim();
   if (fullName.length < 5 || !fullName.includes(" ")) return "Enter your full name as it appears on your ID.";
-  if (!ID_RE.test(String(d.idNumber || "").trim())) return "Enter your national ID number (7 or 8 digits).";
+  if (!ID_RE.test(String(d.idNumber || "").trim())) return "Enter your national ID number (7 to 9 digits).";
   if (d.kraPin && !KRA_RE.test(String(d.kraPin).trim())) return "A KRA PIN looks like A123456789B. Leave it empty if you do not have one.";
-  if (!normalizePhone(d.phone || "")) return "Enter a valid phone number, for example 0712 345 678.";
+  if (!normalizePhone(d.phone || "")) return "Enter a 10-digit phone number starting with 0, for example 0712345678.";
   if (d.businessType !== "individual" && d.businessType !== "registered") return "Choose how you sell.";
   if (d.businessType === "registered") {
     if (String(d.businessName || "").trim().length < 3) return "Enter your registered business name.";

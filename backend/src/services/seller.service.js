@@ -2,7 +2,7 @@
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
-import { normalizePhone } from '../utils/phone.js';
+import { normalizePhone, normalizeTyped } from '../utils/phone.js';
 import { checkShopNameRules } from '../utils/shopName.js';
 import { encryptText } from '../utils/crypto.js';
 import { readPin } from '../utils/geo.js';
@@ -14,9 +14,9 @@ export const MAX_SHOPS_PER_SELLER = 10;
 const BCRYPT_COST = 12;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ID_RE = /^\d{7,8}$/; // Kenyan national ID numbers have 7 or 8 digits
+const ID_RE = /^\d{7,9}$/; // Kenyan national ID numbers have 7 to 9 digits
 const KRA_RE = /^[AP]\d{9}[A-Z]$/i; // A for individuals, P for companies
-const BAD_PHONE = 'Enter a valid phone number, for example 0712 345 678.';
+const BAD_PHONE = 'Enter a 10-digit phone number starting with 0, for example 0712345678.';
 
 // The shop columns the API sends back, named the way the frontend names them.
 const SHOP_SELECT = `
@@ -80,10 +80,10 @@ export function validateRegistration({ account, details, shop, consent }) {
 
   const fullName = String(details.fullName || '').replace(/\s+/g, ' ').trim();
   if (fullName.length < 5 || !fullName.includes(' ')) return 'Enter your full name as it appears on your ID.';
-  if (!ID_RE.test(String(details.idNumber || '').trim())) return 'Enter your national ID number (7 or 8 digits).';
+  if (!ID_RE.test(String(details.idNumber || '').trim())) return 'Enter your national ID number (7 to 9 digits).';
   const kra = String(details.kraPin || '').trim();
   if (kra && !KRA_RE.test(kra)) return 'A KRA PIN looks like A123456789B. Leave it empty if you do not have one.';
-  if (!normalizePhone(details.phone || '')) return BAD_PHONE;
+  if (!normalizeTyped(details.phone || '')) return BAD_PHONE;
   if (details.businessType !== 'individual' && details.businessType !== 'registered') return 'Choose how you sell.';
   if (details.businessType === 'registered') {
     if (String(details.businessName || '').trim().length < 3) return 'Enter your registered business name.';
@@ -168,7 +168,7 @@ export async function registerSeller(input) {
   const { account, details, shop } = input;
   const nameRules = checkShopNameRules(shop.name);
   const passwordHash = await bcrypt.hash(String(account.password), BCRYPT_COST);
-  const phone = normalizePhone(details.phone);
+  const phone = normalizeTyped(details.phone);
   const registered = details.businessType === 'registered';
 
   const { sellerRow, shopId } = await inTransaction(async (client) => {
@@ -366,8 +366,8 @@ export async function updateShop(sellerId, shopId, changes) {
       const raw = String(changes.phone).trim();
       if (raw === '') next.phone = null;
       else {
-        next.phone = normalizePhone(raw);
-        if (!next.phone) throw httpError(400, 'Enter a valid contact number, for example 0712 345 678.');
+        next.phone = normalizeTyped(raw);
+        if (!next.phone) throw httpError(400, 'Enter a 10-digit phone number starting with 0, for example 0712345678.');
       }
     }
 

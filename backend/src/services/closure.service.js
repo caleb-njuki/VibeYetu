@@ -54,7 +54,7 @@ export async function closeShop(sellerId, shopId, { reason, details = '', passwo
 
   const seller = (await pool.query('SELECT password_hash FROM sellers WHERE id = $1', [sellerId])).rows[0];
   if (!seller || !(await bcrypt.compare(String(password || ''), seller.password_hash))) {
-    throw httpError(401, 'That password is not correct.');
+    throw httpError(403, 'That password is not correct.');
   }
 
   return withTransaction(async (c) => {

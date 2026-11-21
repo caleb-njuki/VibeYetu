@@ -3,7 +3,7 @@ import Button from "../../components/Button.jsx";
 import useNow from "../../hooks/useNow.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { getShopCatalog } from "../../services/api.js";
-import { listOffers, offerState, removeOffer, saveOffer } from "../../lib/offers.js";
+import { createOfferApi, deleteOfferApi, listOffers, toggleOfferApi } from "../../services/sellerApi.js";
 import { formatWhen } from "../../lib/orders.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
@@ -24,7 +24,8 @@ function toLocalInput(ts) {
 export default function SellerOffers() {
   const { seller } = useSeller();
   const now = useNow(60000);
-  const [offers, setOffers] = useState(() => listOffers(seller.shopId));
+  const [offers, setOffers] = useState(null);
+  const [busy, setBusy] = useState(false);
   const [products, setProducts] = useState([]);
   const [name, setName] = useState("");
   const [percent, setPercent] = useState("10");
@@ -46,14 +47,37 @@ export default function SellerOffers() {
     };
   }, [seller.shopId]);
 
-  const refresh = () => setOffers(listOffers(seller.shopId));
+  const refresh = async () => {
+    try {
+      setOffers(await listOffers(seller.shopId));
+    } catch (err) {
+      setError(err.message || "Could not load your offers.");
+      setOffers((cur) => cur ?? []);
+    }
+  };
+  useEffect(() => {
+    setOffers(null);
+    refresh();
+  }, [seller.shopId]);
+
+  // Pause, resume or delete: the server decides, then the list is loaded again.
+  async function act(work) {
+    setError("");
+    try {
+      await work();
+    } catch (err) {
+      setError(err.message || "Something went wrong. Please try again.");
+    }
+    refresh();
+  }
 
   function toggleProduct(id) {
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   }
 
-  function create(e) {
+  async function create(e) {
     e.preventDefault();
+    if (busy) return;
     const pct = Number(percent);
     const startsAt = new Date(start).getTime();
     const endsAt = new Date(end).getTime();
@@ -61,20 +85,24 @@ export default function SellerOffers() {
     if (!Number.isInteger(pct) || pct < 5 || pct > 70) return setError("The discount must be a whole number from 5 to 70.");
     if (Number.isNaN(startsAt) || Number.isNaN(endsAt) || endsAt <= startsAt) return setError("The end time must be after the start time.");
     if (scope === "some" && selected.length === 0) return setError("Choose at least one product, or apply the offer to all products.");
-    saveOffer({
-      id: "o" + Date.now().toString(36),
-      shopId: seller.shopId,
-      name: name.trim(),
-      percent: pct,
-      productIds: scope === "all" ? "all" : selected,
-      startsAt,
-      endsAt,
-      active: true,
-    });
-    setError("");
-    setName("");
-    setSelected([]);
-    refresh();
+    setBusy(true);
+    try {
+      await createOfferApi(seller.shopId, {
+        name: name.trim(),
+        percent: pct,
+        productIds: scope === "all" ? "all" : selected,
+        startsAt,
+        endsAt,
+      });
+      setError("");
+      setName("");
+      setSelected([]);
+      await refresh();
+    } catch (err) {
+      setError(err.message || "Could not create the offer. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -142,19 +170,23 @@ export default function SellerOffers() {
             {error}
           </p>
         )}
-        <Button type="submit">Create offer</Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? "Creating..." : "Create offer"}
+        </Button>
       </form>
 
       <section aria-labelledby="your-offers" className="space-y-3">
         <h2 id="your-offers" className="text-lg font-extrabold">
           Your offers
         </h2>
-        {offers.length === 0 ? (
+        {offers === null ? (
+          <div className="h-24 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />
+        ) : offers.length === 0 ? (
           <p className="rounded-2xl bg-white p-8 text-center text-ink-mute shadow-card">No offers yet.</p>
         ) : (
           <ul className="space-y-3">
             {offers.map((o) => {
-              const state = offerState(o, now);
+              const state = o.state;
               const count = o.productIds === "all" ? "All products" : `${o.productIds.length} selected`;
               return (
                 <li key={o.id} className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-card">
@@ -172,10 +204,7 @@ export default function SellerOffers() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          saveOffer({ ...o, active: !o.active });
-                          refresh();
-                        }}
+                        onClick={() => act(() => toggleOfferApi(seller.shopId, o.id))}
                       >
                         {o.active ? "Pause" : "Resume"}
                       </Button>
@@ -183,10 +212,7 @@ export default function SellerOffers() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => {
-                        removeOffer(o.id);
-                        refresh();
-                      }}
+                      onClick={() => act(() => deleteOfferApi(seller.shopId, o.id))}
                     >
                       Delete
                     </Button>

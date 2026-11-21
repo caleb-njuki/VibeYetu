@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, User } from "lucide-react";
 import StatusBadge from "../../components/StatusBadge.jsx";
 import useNow from "../../hooks/useNow.js";
 import useNotifications from "../../hooks/useNotifications.js";
 import PhoneLink from "../../components/PhoneLink.jsx";
-import { hasPayout } from "../../lib/payouts.js";
+import useSuspension from "../../hooks/useSuspension.js";
+import { getPayout } from "../../services/sellerApi.js";
 import { hasBuyerDetails, orderLocation } from "../../lib/contacts.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { acceptDeadline, formatCountdown, formatWhen, getStatus, sellerAction } from "../../lib/orders.js";
-import { STRIKE_LIMIT, shopStrikes } from "../../lib/strikes.js";
-import { getShopFlags } from "../../lib/shopFlags.js";
+import { STRIKE_LIMIT } from "../../lib/strikes.js";
 import { formatKES, fulfillmentLabel } from "../../lib/format.js";
 import { formatSize } from "../../lib/sizes.js";
 
@@ -28,7 +28,14 @@ const chip = (active) =>
 
 export default function SellerOrders() {
   const { seller } = useSeller();
-  const { orders } = useOrders();
+  const { shopOrders: orders, strikes } = useOrders();
+  const suspension = useSuspension(seller.shopId);
+  // null while loading, then true or false
+  const [hasPayout, setHasPayout] = useState(null);
+  useEffect(() => {
+    setHasPayout(null);
+    getPayout(seller.shopId).then((r) => setHasPayout(Boolean(r.payout)), () => setHasPayout(null));
+  }, [seller.shopId]);
   const now = useNow(60000);
   const { unreadOrderIds } = useNotifications("seller", seller.shopId);
   const [filter, setFilter] = useState("all");
@@ -47,14 +54,12 @@ export default function SellerOrders() {
   };
   const count = (key) => rows.filter(matches[key]).length;
   const shown = rows.filter(matches[filter]);
-  const flags = getShopFlags(seller.shopId);
-  const strikes = shopStrikes(orders, seller.shopId, now, flags.reinstatedAt || 0);
 
   return (
     <div className="space-y-5">
       <h1 className="text-3xl font-extrabold">Orders</h1>
 
-      {strikes.streak > 0 && !flags.suspended && (
+      {strikes.streak > 0 && !suspension.suspended && (
         <p role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <strong>
             {strikes.streak} of {STRIKE_LIMIT} unfulfilled orders in a row.
@@ -63,7 +68,7 @@ export default function SellerOrders() {
         </p>
       )}
 
-      {!hasPayout(seller.shopId) && (
+      {hasPayout === false && (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
           Add a payout method (Till, Paybill or Pochi la Biashara) in{" "}
           <Link to="/my-shop/settings" className="font-semibold underline">

@@ -37,6 +37,8 @@ const checkoutSchema = z.object({
     phone: z.string('Enter a phone number the seller can reach you on.'),
     area: z.string().optional(),
     street: z.string().optional(),
+    lat: z.number().optional(), // the buyer's pin, needed for delivery (the fee is per kilometre)
+    lng: z.number().optional(),
   }, 'Enter your name and a phone number the seller can reach you on.'),
 });
 

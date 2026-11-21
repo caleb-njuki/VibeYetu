@@ -8,7 +8,6 @@ import Button from "../../components/Button.jsx";
 import StatusBadge from "../../components/StatusBadge.jsx";
 import ReviewForm from "../../components/ReviewForm.jsx";
 import { Stars } from "../../components/StarInput.jsx";
-import { findRating } from "../../lib/ratings.js";
 import useNow from "../../hooks/useNow.js";
 import useNotifications from "../../hooks/useNotifications.js";
 import { useOrders } from "../../context/OrdersContext.jsx";
@@ -23,7 +22,7 @@ const card = "space-y-4 rounded-2xl bg-white p-5 shadow-card";
 export default function SellerOrderDetail() {
   const { id } = useParams();
   const { seller } = useSeller();
-  const { orders, sellerAccept, sellerReject, sellerDispatch, sellerConfirmReturn, submitReport } = useOrders();
+  const { shopOrders: orders, sellerAccept, sellerReject, sellerDispatch, sellerConfirmReturn, submitReport } = useOrders();
   const now = useNow(1000);
   const { unreadOrderIds, markOrderRead } = useNotifications("seller", seller.shopId);
 
@@ -54,21 +53,21 @@ export default function SellerOrderDetail() {
   // The fee is taken only when an order pays out. Rejected and refunded orders pay nothing.
   const pays = ["pending", "accepted", "dispatched", "review", "completed"].includes(status);
 
-  function onAccept() {
+  async function onAccept() {
     const promise = PROMISES.find((p) => p.id === promiseId) || PROMISES[0];
-    const result = sellerAccept(order.id, promise.ms);
+    const result = await sellerAccept(order.id, promise.ms);
     setError(result.ok ? "" : result.message);
   }
 
-  function onDispatch(e) {
+  async function onDispatch(e) {
     e.preventDefault();
-    const result = sellerDispatch(order.id, codeInput);
+    const result = await sellerDispatch(order.id, codeInput);
     setError(result.ok ? "" : result.message);
     if (result.ok) setCodeInput("");
   }
 
-  function onReject() {
-    const result = sellerReject(order.id, rejectReason);
+  async function onReject() {
+    const result = await sellerReject(order.id, rejectReason);
     if (result.ok) setRejecting(false);
     else setError(result.message);
   }
@@ -253,7 +252,7 @@ export default function SellerOrderDetail() {
             The buyer confirmed receipt. You receive {formatKES(money.net)} after VibeYetu&apos;s {FEE_LABEL} fee.
           </p>
           {(() => {
-            const r = findRating(order.id, "shop", order.shopId);
+            const r = (order.ratings || []).find((x) => x.kind === "shop");
             return r ? (
               <div className="space-y-1 rounded-xl bg-ivory p-4 text-sm">
                 <p className="font-bold">The buyer rated you</p>
@@ -280,8 +279,8 @@ export default function SellerOrderDetail() {
                 <p className="rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-900">Return confirmed. Stock has been updated.</p>
               ) : (
                 <Button
-                  onClick={() => {
-                    const result = sellerConfirmReturn(order.id);
+                  onClick={async () => {
+                    const result = await sellerConfirmReturn(order.id);
                     setError(result.ok ? "" : result.message);
                   }}
                 >

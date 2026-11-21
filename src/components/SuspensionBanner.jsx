@@ -1,18 +1,17 @@
 import { Link } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { STRIKE_LIMIT } from "../lib/strikes.js";
-import { getShopFlags } from "../lib/shopFlags.js";
-import { currentReport } from "../lib/suspensions.js";
+import useSuspension from "../hooks/useSuspension.js";
 import { formatWhen } from "../lib/orders.js";
 
 // Shown at the top of My Shop while the current shop is suspended.
 export default function SuspensionBanner({ shopId }) {
-  const flags = getShopFlags(shopId);
+  const flags = useSuspension(shopId);
   if (!flags.suspended) return null;
-  const report = currentReport(shopId);
+  const report = flags.report;
   const why =
-    flags.suspendKind === "auto"
-      ? `${(flags.suspendOrderIds || []).length || STRIKE_LIMIT} orders in a row were not fulfilled.`
+    flags.kind === "auto"
+      ? `${(flags.orders || []).length || STRIKE_LIMIT} orders in a row were not fulfilled.`
       : "VibeYetu support suspended this shop.";
 
   let tone = "border-red-300 bg-red-50 text-red-900";

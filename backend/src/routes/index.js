@@ -23,6 +23,7 @@ import sellerPayoutRoutes from './sellerPayout.routes.js';
 import sellerPasswordRoutes from './sellerPassword.routes.js';
 import sellerOffersRoutes from './sellerOffers.routes.js';
 import sellerClosureRoutes from './sellerClosure.routes.js';
+import sellerVerifyRoutes from './sellerVerify.routes.js';
 import { buyerNotificationRoutes, sellerNotificationRoutes } from './notifications.routes.js';
 
 const router = Router();
@@ -42,6 +43,7 @@ router.use('/seller/shops/:shopId', sellerPayoutRoutes);
 router.use('/seller/account', sellerPasswordRoutes);
 router.use('/seller/shops/:shopId', sellerOffersRoutes);
 router.use('/seller/shops/:shopId', sellerClosureRoutes);
+router.use('/seller/shops/:shopId', sellerVerifyRoutes);
 router.use('/favourites', favouritesRoutes);
 router.use('/checkout', checkoutRoutes);
 router.use('/orders', buyerOrdersRoutes);

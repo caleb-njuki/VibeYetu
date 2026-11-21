@@ -27,7 +27,7 @@ export default function SellerPayments() {
     <div className="space-y-6">
       <div className="space-y-1">
         <h1 className="text-3xl font-extrabold">Payments</h1>
-        <p className="text-sm text-ink-mute">How you get paid, and what you charge for delivery.</p>
+        <p className="text-sm text-ink-mute">How you get paid, and what you charge per kilometre for delivery.</p>
       </div>
       <PayoutMethods email={seller.email} shopId={seller.shopId} />
       {delivers === null ? (

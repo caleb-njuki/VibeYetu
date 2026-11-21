@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import CloseShopFlow from "../../components/CloseShopFlow.jsx";
+import VerifyShop from "../../components/VerifyShop.jsx";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { MAX_SHOPS_PER_SELLER, SHOPS_CHANGED } from "../../lib/sellers.js";
 
@@ -28,6 +29,8 @@ export default function SellerShop() {
         <h1 className="text-3xl font-extrabold">Shop</h1>
         <p className="text-sm text-ink-mute">Manage your shops and branches, and close a shop you no longer run.</p>
       </div>
+
+      <VerifyShop key={seller.shopId} />
 
       <section className="space-y-3 rounded-2xl bg-white p-5 shadow-card" aria-labelledby="mine-title">
         <div className="flex flex-wrap items-center justify-between gap-3">

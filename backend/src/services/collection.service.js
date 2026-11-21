@@ -9,7 +9,7 @@
 import { pool } from '../config/db.js';
 import { config } from '../config/env.js';
 import { httpError } from '../utils/httpError.js';
-import { normalizePhone } from '../utils/phone.js';
+import { normalizeTyped } from '../utils/phone.js';
 import { withTransaction } from '../utils/transaction.js';
 import { stkPush, stkQuery } from './daraja.service.js';
 import { getShopAd, settleAdPaid, adPaidMessage } from './ad.service.js';
@@ -40,7 +40,7 @@ export async function payForCheckout(buyerId, groupId, { method, phone }) {
   if (!isDaraja()) return { ...(await payCheckout(buyerId, groupId, { method, phone })), status: 'paid' };
 
   if (method !== 'mpesa') throw httpError(400, 'Card payments are not available yet. Please pay with M-Pesa.');
-  const normalized = normalizePhone(String(phone ?? ''));
+  const normalized = normalizeTyped(String(phone ?? ''));
   if (!normalized || !normalized.startsWith('+254')) throw httpError(400, 'Enter the M-Pesa phone number you want to pay from.');
   const daraja = normalized.slice(1); // 254712345678
 

@@ -1,6 +1,6 @@
-// Sends an email.
-// EMAIL_MODE=console: prints the message in the terminal (no email is sent).
-// EMAIL_MODE=smtp: sends a real email from a Gmail account (EMAIL_USER + EMAIL_APP_PASSWORD), using the nodemailer package.
+// Sends a real email from a Gmail account (EMAIL_USER + EMAIL_APP_PASSWORD) using the nodemailer package.
+// Nothing is ever printed in the terminal instead of being sent.
+// (EMAIL_MODE=test exists only for the automatic test scripts, with NODE_ENV=test. It keeps the emails in memory.)
 import { config } from '../config/env.js';
 
 function emailError() {
@@ -10,10 +10,11 @@ function emailError() {
 }
 
 let transport;
+export const testOutbox = [];
 
 export async function sendEmail(to, subject, text) {
-  if (config.email.mode !== 'smtp') {
-    console.log(`\n[DEV EMAIL] To ${to}: ${subject}\n${text}\n`);
+  if (config.email.mode === 'test') {
+    testOutbox.push({ to, subject, text });
     return;
   }
   try {

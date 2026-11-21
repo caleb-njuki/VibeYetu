@@ -70,7 +70,7 @@ export function validatePayout(draft) {
   }
   if (method === "pochi" || method === "mpesa") {
     const phone = normalizePhone(draft.phone || "");
-    if (!phone) return { ok: false, message: "Enter a valid phone number, for example 0712 345 678." };
+    if (!phone) return { ok: false, message: "Enter a 10-digit phone number starting with 0, for example 0712345678." };
     return { ok: true, value: { method, phone } };
   }
   return { ok: false, message: "Choose how you want to be paid." };

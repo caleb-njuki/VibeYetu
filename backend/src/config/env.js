@@ -71,7 +71,7 @@ const schema = z
     DARAJA_PAYOUT_SHORTCODE: z.string().optional(),
 
     // Email codes (sign-in, sign-up, password and payout changes). console = printed in this terminal. smtp = a real email is sent with a Gmail account.
-    EMAIL_MODE: z.enum(['console', 'smtp']).default('console'),
+    EMAIL_MODE: z.enum(['smtp', 'test']).default('smtp'),
     EMAIL_USER: z.string().optional(), // the Gmail address that sends the emails
     EMAIL_APP_PASSWORD: z.string().optional(), // a Google "App password" (not the normal Gmail password)
     EMAIL_FROM_NAME: z.string().min(1).default('VibeYetu'),
@@ -118,11 +118,11 @@ const schema = z
       need('DARAJA_CALLBACK_BASE_URL', /^https:\/\/[^\s/]+/.test(env.DARAJA_CALLBACK_BASE_URL || ''), 'DARAJA_CALLBACK_BASE_URL must be a public https address (for example from ngrok)');
       need('DARAJA_CALLBACK_SECRET', /^[A-Za-z0-9_-]{24,}$/.test(env.DARAJA_CALLBACK_SECRET || ''), 'DARAJA_CALLBACK_SECRET must be at least 24 letters or numbers (see .env.example)');
     }
-    if (env.EMAIL_MODE === 'smtp' && (!env.EMAIL_USER || !env.EMAIL_APP_PASSWORD)) {
-      ctx.addIssue({ code: 'custom', path: ['EMAIL_USER'], message: 'EMAIL_USER and EMAIL_APP_PASSWORD are required when EMAIL_MODE=smtp' });
+    if (env.EMAIL_MODE === 'test' && env.NODE_ENV !== 'test') {
+      ctx.addIssue({ code: 'custom', path: ['EMAIL_MODE'], message: 'EMAIL_MODE must be smtp (real emails). Remove the EMAIL_MODE line from .env.' });
     }
-    if (env.NODE_ENV === 'production' && env.EMAIL_MODE !== 'smtp') {
-      ctx.addIssue({ code: 'custom', path: ['EMAIL_MODE'], message: 'EMAIL_MODE must be smtp in production' });
+    if (env.EMAIL_MODE === 'smtp' && (!env.EMAIL_USER || !env.EMAIL_APP_PASSWORD)) {
+      ctx.addIssue({ code: 'custom', path: ['EMAIL_USER'], message: 'EMAIL_USER and EMAIL_APP_PASSWORD are required: put the Gmail address and its App password in .env' });
     }
   });
 

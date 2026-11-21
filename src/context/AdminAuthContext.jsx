@@ -1,13 +1,14 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { SESSION_EXPIRED, getToken, setToken } from "../services/http.js";
 
-// Demo admin session. Real staff accounts and roles come with the backend.
+// The signed-in staff member. The token is kept in http.js.
 const AdminContext = createContext(null);
 const STORAGE_KEY = "vibeyetu_admin";
 
 function loadAdmin() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    return parsed && typeof parsed.email === "string" ? parsed : null;
+    return parsed && typeof parsed.email === "string" && getToken("admin") ? parsed : null;
   } catch {
     return null;
   }
@@ -16,10 +17,27 @@ function loadAdmin() {
 export function AdminAuthProvider({ children }) {
   const [admin, setAdmin] = useState(loadAdmin);
 
+  useEffect(() => {
+    const onExpired = (e) => {
+      if (e.detail === "admin") {
+        setAdmin(null);
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // Nothing to clean up.
+        }
+      }
+    };
+    window.addEventListener(SESSION_EXPIRED, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED, onExpired);
+  }, []);
+
   const value = useMemo(
     () => ({
       admin,
-      login: (next) => {
+      // login({ email, name, ... }, token)
+      login: (next, token) => {
+        if (token) setToken("admin", token);
         setAdmin(next);
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -28,6 +46,7 @@ export function AdminAuthProvider({ children }) {
         }
       },
       logout: () => {
+        setToken("admin", "");
         setAdmin(null);
         try {
           localStorage.removeItem(STORAGE_KEY);

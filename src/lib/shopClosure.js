@@ -1,8 +1,4 @@
-// Closing a shop, and the rules around it. Kept in the browser for the demo.
-// The backend runs the same checks on the server later.
-import { isClosed, setShopFlags } from "./shopFlags.js";
-import { listAds, stopAd } from "./ads.js";
-import { listOffers, removeOffer } from "./offers.js";
+// The rules around closing a shop. The server runs the same checks and does the closing.
 import { platformFee } from "./fees.js";
 
 export const CLOSE_REASONS = [
@@ -40,28 +36,6 @@ export function validateClosure({ reason, details }) {
   if (reason === OTHER_REASON && d.length < MIN_OTHER_DETAILS) return "Please tell us a little more, at least 10 characters.";
   if (d.length > MAX_DETAILS) return "Keep the details under 500 characters.";
   return "";
-}
-
-// Closes the shop. Running ads stop and offers are removed. Products, orders and payout
-// details stay on file, because orders may still need support, and the owner may ask to reopen.
-export function closeShopNow({ shopId, reason, details = "", orders }) {
-  const problem = validateClosure({ reason, details });
-  if (problem) return { ok: false, message: problem };
-  if (isClosed(shopId)) return { ok: false, message: "This shop is already closed." };
-  if (closureBlockers(orders, shopId).open.length > 0) {
-    return { ok: false, message: "Finish your open orders first. Then you can close the shop." };
-  }
-  setShopFlags(shopId, {
-    closed: true,
-    closedAt: Date.now(),
-    closeReason: reason,
-    closeDetails: String(details).trim().slice(0, MAX_DETAILS),
-  });
-  // setShopFlags cannot report a blocked browser store, so check that the flag stuck.
-  if (!isClosed(shopId)) return { ok: false, message: "Your browser blocked saving. Allow site data and try again." };
-  listAds(shopId).forEach((ad) => stopAd(ad.id));
-  listOffers(shopId).forEach((offer) => removeOffer(offer.id));
-  return { ok: true };
 }
 
 // ---- A copy of the shop's orders, offered before closing ----

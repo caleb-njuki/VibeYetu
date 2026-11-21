@@ -16,3 +16,10 @@ export function normalizePhone(input) {
   // Other countries: standard international format.
   return /^\+[1-9]\d{7,14}$/.test(p) ? p : null;
 }
+
+// For a number someone has just typed in a form: exactly 10 digits, starting with 0 (07... or 01...).
+// Returns +254712345678, or null. Numbers that are already saved are read with normalizePhone above.
+export function normalizeTyped(input) {
+  const p = typeof input === 'string' ? input.trim() : '';
+  return /^0[17]\d{8}$/.test(p) ? `+254${p.slice(1)}` : null;
+}

@@ -9,7 +9,7 @@ import { imageId } from "../../lib/images.js";
 import { getPayout, updateShop } from "../../services/sellerApi.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { checkShopNameFree } from "../../lib/sellers.js";
-import { localPhone, normalizePhone } from "../../lib/format.js";
+import { localPhone, normalizePhone, phoneDigits } from "../../lib/format.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
 
@@ -72,7 +72,7 @@ export default function SellerSettings() {
     ["Delivery or pickup chosen", form.delivery || form.pickup],
     ["A contact phone number", Boolean(normalizePhone(form.phone))],
     ["A payout method (Till, Paybill, Pochi la Biashara or M-Pesa), set on the Payments tab", Boolean(payout)],
-    ["A delivery fee, set on the Payments tab (not needed if you only offer pickup)", !form.delivery || deliveryFee !== null],
+    ["A delivery fee per kilometre, set on the Payments tab (not needed if you only offer pickup)", !form.delivery || deliveryFee !== null],
   ];
   const done = checklist.filter(([, ok]) => ok).length;
 
@@ -214,7 +214,7 @@ export default function SellerSettings() {
           <label htmlFor="s-phone" className="text-sm font-semibold">
             Contact phone
           </label>
-          <input id="s-phone" type="tel" inputMode="tel" placeholder="0712 345 678" value={form.phone} onChange={set("phone")} className={inputCls} />
+          <input id="s-phone" type="tel" inputMode="numeric" maxLength={10} placeholder="0712345678" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: phoneDigits(e.target.value) }))} className={inputCls} />
         </div>
 
         {error && (

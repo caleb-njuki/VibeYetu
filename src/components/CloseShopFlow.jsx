@@ -6,13 +6,11 @@ import ForgotPasswordPanel from "./ForgotPasswordPanel.jsx";
 import useDialog from "../hooks/useDialog.js";
 import { useOrders } from "../context/OrdersContext.jsx";
 import { useSeller } from "../context/SellerAuthContext.jsx";
-import { getShopCatalog } from "../services/api.js";
-import { SHOPS_CHANGED, signInSeller } from "../lib/sellers.js";
-import { adState, listAds } from "../lib/ads.js";
-import { listOffers, offerState } from "../lib/offers.js";
+import { closeShopApi, getClosure } from "../services/sellerApi.js";
+import { SHOPS_CHANGED } from "../lib/sellers.js";
 import { formatKES } from "../lib/format.js";
 import { formatWhen } from "../lib/orders.js";
-import { CLOSE_REASONS, OTHER_REASON, closeShopNow, closureBlockers, ordersToCsv, validateClosure } from "../lib/shopClosure.js";
+import { CLOSE_REASONS, OTHER_REASON, closureBlockers, ordersToCsv, validateClosure } from "../lib/shopClosure.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
 const STEPS = ["Reason", "Check", "Confirm"];
@@ -28,7 +26,7 @@ const slug = (s) =>
 // Open from the Shop tab. `onClose` just dismisses the box (nothing is closed until the last step).
 export default function CloseShopFlow({ onClose }) {
   const { seller, switchShop, logout } = useSeller();
-  const { orders } = useOrders();
+  const { shopOrders: orders } = useOrders();
   const navigate = useNavigate();
   const ref = useRef(null);
   const titleId = useId();
@@ -72,14 +70,9 @@ export default function CloseShopFlow({ onClose }) {
 
   useEffect(() => {
     let live = true;
-    getShopCatalog(seller.shopId)
-      .then((list) => {
-        if (!live) return;
-        setInfo({
-          products: list.length,
-          ads: listAds(seller.shopId).filter((a) => ["live", "scheduled", "attention"].includes(adState(a))).length,
-          offers: listOffers(seller.shopId).filter((o) => offerState(o) !== "ended").length,
-        });
+    getClosure(seller.shopId)
+      .then((r) => {
+        if (live) setInfo({ products: r.products, ads: r.ads, offers: r.offers });
       })
       .catch(() => {
         if (live) setInfo({ products: 0, ads: 0, offers: 0 });
@@ -134,22 +127,26 @@ export default function CloseShopFlow({ onClose }) {
     setBusy(true);
     setError("");
     try {
-      // The same check as signing in. It only proves the person at the screen knows the password.
-      const check = await signInSeller(seller.email, password);
-      if (!alive.current) return;
-      if (!check.ok) {
-        const used = fails + 1;
-        setFails(used);
-        setPassword("");
-        return setError(
-          used >= MAX_PASSWORD_TRIES
-            ? "Too many wrong passwords. Use Forgot your password to reset it, or sign out and sign in again."
-            : `That password is not correct. ${MAX_PASSWORD_TRIES - used} ${MAX_PASSWORD_TRIES - used === 1 ? "try" : "tries"} left.`
-        );
+      // The server checks the password and closes the shop.
+      let result;
+      try {
+        result = await closeShopApi(seller.shopId, { reason, details: details.trim(), password });
+      } catch (err) {
+        if (!alive.current) return;
+        if (err.status === 403) {
+          const used = fails + 1;
+          setFails(used);
+          setPassword("");
+          return setError(
+            used >= MAX_PASSWORD_TRIES
+              ? "Too many wrong passwords. Use Forgot your password to reset it, or sign out and sign in again."
+              : `That password is not correct. ${MAX_PASSWORD_TRIES - used} ${MAX_PASSWORD_TRIES - used === 1 ? "try" : "tries"} left.`
+          );
+        }
+        return setError(err.message || "Could not close the shop. Please try again.");
       }
-      const result = closeShopNow({ shopId: seller.shopId, reason, details, orders });
-      if (!result.ok) return setError(result.message);
-      setNextShop(others[0] || null);
+      if (!alive.current) return;
+      setNextShop(others.find((s) => s.id === result.nextShopId) || others[0] || null);
       setPassword("");
       setStep(3);
     } finally {

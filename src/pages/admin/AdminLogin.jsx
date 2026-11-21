@@ -3,10 +3,9 @@ import { useNavigate } from "react-router-dom";
 import Button from "../../components/Button.jsx";
 import Logo from "../../components/Logo.jsx";
 import { useAdmin } from "../../context/AdminAuthContext.jsx";
+import { adminLogin } from "../../services/adminApi.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-vibe";
-const DEMO_EMAIL = "admin@vibeyetu.co.ke";
-const DEMO_PASSWORD = "admin12345";
 
 export default function AdminLogin() {
   const { admin, login } = useAdmin();
@@ -14,18 +13,26 @@ export default function AdminLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (admin) navigate("/admin", { replace: true });
   }, [admin, navigate]);
 
-  function onSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault();
-    if (email.trim().toLowerCase() !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
-      setError("Wrong email or password.");
-      return;
+    if (busy) return;
+    if (!email.trim() || !password) return setError("Enter your email and password.");
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminLogin(email.trim(), password);
+      login({ email: res.admin.email, name: res.admin.fullName }, res.token);
+    } catch (err) {
+      setError(err.message || "Could not sign in. Please try again.");
+    } finally {
+      setBusy(false);
     }
-    login({ email: DEMO_EMAIL });
   }
 
   return (
@@ -53,8 +60,8 @@ export default function AdminLogin() {
             {error}
           </p>
         )}
-        <Button type="submit" size="lg" className="w-full">
-          Sign in
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
+          {busy ? "Signing in..." : "Sign in"}
         </Button>
       </form>
     </div>

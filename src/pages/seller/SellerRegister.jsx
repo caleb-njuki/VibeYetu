@@ -1,3 +1,4 @@
+import { phoneDigits } from "../../lib/format.js";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
@@ -236,14 +237,14 @@ export default function SellerRegister() {
                 id="r-id"
                 inputMode="numeric"
                 autoComplete="off"
-                maxLength={8}
+                maxLength={9}
                 value={details.idNumber}
                 onChange={(e) => setDetails((d) => ({ ...d, idNumber: e.target.value.replace(/\D/g, "") }))}
                 className={inputCls}
               />
             </Field>
             <Field id="r-phone" label="Phone number" why="So support can reach you. Buyers who order from you also see it on their order page. It is not shown on your shop page.">
-              <input id="r-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={details.phone} onChange={setD("phone")} className={inputCls} />
+              <input id="r-phone" type="tel" inputMode="numeric" autoComplete="tel" maxLength={10} placeholder="0712345678" value={details.phone} onChange={(e) => setDetails((d) => ({ ...d, phone: phoneDigits(e.target.value) }))} className={inputCls} />
             </Field>
             <Field id="r-kra" label="KRA PIN (optional)" why="Helps us confirm a registered trader. Leave empty if you do not have one.">
               <input id="r-kra" autoComplete="off" maxLength={11} placeholder="A123456789B" value={details.kraPin} onChange={setD("kraPin")} className={`${inputCls} uppercase`} />

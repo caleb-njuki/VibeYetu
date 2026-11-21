@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
 import { withTransaction } from '../utils/transaction.js';
-import { normalizePhone } from '../utils/phone.js';
+import { normalizeTyped } from '../utils/phone.js';
 import {
   ACCEPT_WINDOW_SECONDS, MAX_OPEN_CHECKOUTS, MAX_QTY_PER_ITEM, PLATFORM_FEE_PERCENT, PROMISES,
   UNPAID_EXPIRY_SECONDS, WINDOW_SECONDS, formatKES, formatSize, formatWhen,
@@ -12,7 +12,9 @@ import {
 import { saveProduct, takeFrom, restockOrder } from './stock.service.js';
 import { addEvent, holdPayment, refundOrder, releaseOrder } from './escrow.service.js';
 import { chargeBuyer, PAYMENT_PROVIDER } from './payment.service.js';
-import { evaluateShop } from './strike.service.js';
+import { currentStreak, evaluateShop } from './strike.service.js';
+import { STRIKE_LIMIT } from '../utils/strikes.js';
+import { MAX_DELIVERY_KM, deliveryFeeFor, kmBetween } from '../utils/distance.js';
 import { PRICE_NOW_SQL } from '../utils/offerSql.js';
 
 export const SELLER_REJECT_REASONS = ['Out of stock', 'Item is faulty', 'Cannot deliver in time', 'Other'];
@@ -33,7 +35,7 @@ const cleanText = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 // items: [{ productId, qty, size }]. Prices and names come from OUR database, never from the app.
 export async function createCheckout(buyerId, { items, modes = {}, contact }) {
   const name = cleanText(contact?.name);
-  const phone = normalizePhone(String(contact?.phone ?? ''));
+  const phone = normalizeTyped(String(contact?.phone ?? ''));
   if (name.length < 2 || name.length > 80 || !phone) {
     throw httpError(400, 'Enter your name and a phone number the seller can reach you on.');
   }
@@ -62,7 +64,7 @@ export async function createCheckout(buyerId, { items, modes = {}, contact }) {
     const ids = [...new Set([...lines.values()].map((l) => l.productId))];
     const found = await c.query(
       `SELECT p.id, p.shop_id, p.name, p.price, p.stock, p.size_type, p.sizes, p.active, p.deleted_at,
-              s.name AS shop_name, s.suspended, s.closed_at, s.fulfillment, s.delivery_fee,
+              s.name AS shop_name, s.suspended, s.closed_at, s.fulfillment, s.delivery_fee, s.lat AS shop_lat, s.lng AS shop_lng,
               ${PRICE_NOW_SQL} AS price_now
        FROM products p JOIN shops s ON s.id = p.shop_id
        WHERE p.id = ANY($1::bigint[]) ORDER BY p.id FOR UPDATE OF p FOR SHARE OF s`,
@@ -115,7 +117,20 @@ export async function createCheckout(buyerId, { items, modes = {}, contact }) {
       const area = cleanText(contact?.area).slice(0, 80);
       const street = cleanText(contact?.street).slice(0, 120);
       if (mode === 'delivery' && (!area || !street)) throw httpError(400, 'Enter your area and street so the shop can deliver.');
-      const deliveryFee = mode === 'delivery' ? shop.delivery_fee : 0;
+      // The shop charges a rate per kilometre. The distance is worked out here from the buyer's pin, never taken from the app.
+      let deliveryFee = 0;
+      if (mode === 'delivery') {
+        const lat = Number(contact?.lat);
+        const lng = Number(contact?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+          throw httpError(400, 'Share your location so we can work out the delivery fee.');
+        }
+        const km = kmBetween(lat, lng, shop.shop_lat, shop.shop_lng);
+        if (km > MAX_DELIVERY_KM) {
+          throw httpError(400, `${o.shopName} is too far to deliver to you (more than ${MAX_DELIVERY_KM} km). Please choose pickup or another shop.`);
+        }
+        deliveryFee = deliveryFeeFor(shop.delivery_fee, km);
+      }
       orders.push({ id: newId('VY-'), ...o, mode, deliveryFee, total: o.subtotal + deliveryFee, area, street });
     }
     const total = orders.reduce((n, o) => n + o.total, 0);
@@ -176,7 +191,7 @@ export async function settleGroupPaid(c, g, { method, phone, provider }) {
 export async function payCheckout(buyerId, groupId, { method, phone }) {
   let payPhone = null;
   if (method === 'mpesa') {
-    payPhone = normalizePhone(String(phone ?? ''));
+    payPhone = normalizeTyped(String(phone ?? ''));
     if (!payPhone) throw httpError(400, 'Enter the M-Pesa phone number you want to pay from.');
   }
 
@@ -230,6 +245,13 @@ export async function shapeOrders(rows, role) {
   const group = (list) => list.reduce((m, r) => (m.get(r.order_id)?.push(r) ?? m.set(r.order_id, [r]), m), new Map());
   const itemsBy = group(items.rows), eventsBy = group(events.rows), reportsBy = group(reports.rows), ratingsBy = group(ratings.rows);
   const skipped = new Set(skips.rows.map((r) => r.order_id));
+  // A buyer sees the shop's contact phone on their own orders (and nowhere else).
+  const phones = new Map();
+  if (role === 'buyer') {
+    const shopIds = [...new Set(rows.map((r) => r.shop_id))];
+    const found = await pool.query('SELECT id, contact_phone FROM shops WHERE id = ANY($1::bigint[])', [shopIds]);
+    found.rows.forEach((r) => phones.set(String(r.id), r.contact_phone));
+  }
 
   return rows.map((o) => {
     // The receipt code: the seller sees it while preparing the order, the buyer once it is on the way.
@@ -239,6 +261,7 @@ export async function shapeOrders(rows, role) {
       groupId: o.group_id,
       shopId: String(o.shop_id),
       shopName: o.shop_name,
+      sellerPhone: role === 'buyer' ? (phones.get(String(o.shop_id)) || '').replace(/^\+/, '') || null : undefined,
       status: o.status,
       mode: o.mode,
       subtotal: o.subtotal,
@@ -289,7 +312,7 @@ export async function getBuyerOrder(buyerId, orderId) {
 
 export async function listShopOrders(shopId) {
   const { rows } = await pool.query(`SELECT o.* FROM orders o WHERE o.shop_id = $1 AND ${VISIBLE} ORDER BY o.paid_at DESC, o.id LIMIT 200`, [shopId]);
-  return { orders: await shapeOrders(rows, 'seller'), serverTime: serverTime() };
+  return { orders: await shapeOrders(rows, 'seller'), strikes: { streak: await currentStreak(shopId), limit: STRIKE_LIMIT }, serverTime: serverTime() };
 }
 
 export async function getShopOrder(shopId, orderId) {

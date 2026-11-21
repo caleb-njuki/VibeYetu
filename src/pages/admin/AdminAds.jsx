@@ -1,21 +1,38 @@
 import { useState } from "react";
 import Button from "../../components/Button.jsx";
 import AdSlide from "../../components/AdSlide.jsx";
-import useNow from "../../hooks/useNow.js";
-import { activateAd, adState, listAds, refundAd, stopAd } from "../../lib/ads.js";
-import { shops } from "../../data/mock.js";
+import { useEffect } from "react";
+import { adminAdAction, listAdminAds } from "../../services/adminApi.js";
 import { formatWhen } from "../../lib/orders.js";
 import { formatKES } from "../../lib/format.js";
 
 const LABELS = { attention: "Needs attention", scheduled: "Scheduled", live: "Live", ended: "Ended", refunded: "Refunded", stopped: "Stopped" };
-const shopName = (id) => shops.find((s) => s.id === id)?.name || "Shop";
 
 export default function AdminAds() {
-  const now = useNow(60000);
-  const [ads, setAds] = useState(() => listAds());
+  const [ads, setAds] = useState(null);
+  const [error, setError] = useState("");
 
-  const refresh = () => setAds(listAds());
-  const rows = ads.map((a) => ({ a, state: adState(a, now) }));
+  const refresh = () =>
+    listAdminAds()
+      .then(setAds)
+      .catch((err) => {
+        setAds((cur) => cur ?? []);
+        setError(err.message || "Could not load ads.");
+      });
+  useEffect(() => {
+    refresh();
+  }, []);
+  async function act(adId, action) {
+    setError("");
+    try {
+      await adminAdAction(adId, action);
+    } catch (err) {
+      setError(err.message || "Could not do that.");
+    }
+    refresh();
+  }
+
+  const rows = (ads || []).map((a) => ({ a, state: a.state }));
   const attention = rows.filter((r) => r.state === "attention");
   const running = rows.filter((r) => r.state === "live" || r.state === "scheduled");
   const history = rows.filter((r) => ["ended", "stopped", "refunded"].includes(r.state));
@@ -29,6 +46,9 @@ export default function AdminAds() {
         </p>
       </div>
 
+      {error && <p role="alert" className="text-sm font-semibold text-red-700">{error}</p>}
+      {ads === null && <div className="h-24 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />}
+
       <section aria-labelledby="attention-ads" className="space-y-3">
         <h2 id="attention-ads" className="text-lg font-extrabold">
           Needs attention ({attention.length})
@@ -40,7 +60,7 @@ export default function AdminAds() {
             {attention.map(({ a }) => (
               <li key={a.id} className="space-y-4 rounded-2xl bg-white p-5 shadow-card">
                 <p className="text-sm text-ink-mute">
-                  <span className="font-bold text-ink">{shopName(a.shopId)}</span> &middot; {a.days} {a.days === 1 ? "day" : "days"} &middot; Paid {formatKES(a.total)} &middot; Sent{" "}
+                  <span className="font-bold text-ink">{a.shopName}</span> &middot; {a.days} {a.days === 1 ? "day" : "days"} &middot; Paid {formatKES(a.total)} &middot; Sent{" "}
                   {formatWhen(a.createdAt)}
                 </p>
                 <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
@@ -48,32 +68,23 @@ export default function AdminAds() {
                   {(a.reports || []).length > 0 && ` Reported by ${(a.reports || []).length} buyers (${[...new Set(a.reports.map((r) => r.reason))].join(", ")}).`}
                 </p>
                 <div className="max-w-lg">
-                  <AdSlide ad={{ ...a, shopName: shopName(a.shopId) }} />
+                  <AdSlide ad={a} />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
-                    onClick={() => {
-                      activateAd(a.id);
-                      refresh();
-                    }}
+                    onClick={() => act(a.id, "activate")}
                   >
                     Put it live
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      refundAd(a.id);
-                      refresh();
-                    }}
+                    onClick={() => act(a.id, "refund")}
                   >
                     Refund and close
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => {
-                      stopAd(a.id);
-                      refresh();
-                    }}
+                    onClick={() => act(a.id, "stop")}
                   >
                     Remove without refund
                   </Button>
@@ -97,7 +108,7 @@ export default function AdminAds() {
                 <div className="min-w-0 flex-1">
                   <p className="font-bold">{a.headline}</p>
                   <p className="text-sm text-ink-mute">
-                    {shopName(a.shopId)} &middot; Until {formatWhen(a.endsAt)}
+                    {a.shopName} &middot; Until {formatWhen(a.endsAt)}
                     {(a.reports || []).length > 0 && ` \u00b7 ${a.reports.length} ${a.reports.length === 1 ? "report" : "reports"}`}
                   </p>
                 </div>
@@ -105,10 +116,7 @@ export default function AdminAds() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => {
-                    stopAd(a.id);
-                    refresh();
-                  }}
+                  onClick={() => act(a.id, "stop")}
                 >
                   Take down
                 </Button>
@@ -129,7 +137,7 @@ export default function AdminAds() {
                 <div className="min-w-0 flex-1">
                   <p className="font-bold">{a.headline}</p>
                   <p className="text-sm text-ink-mute">
-                    {shopName(a.shopId)} &middot; {formatKES(a.total)}
+                    {a.shopName} &middot; {formatKES(a.total)}
                   </p>
                 </div>
                 <span className="rounded-full bg-ink/10 px-3 py-1 text-xs font-bold">{LABELS[state]}</span>

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import Button from "../../components/Button.jsx";
 import AdSlide from "../../components/AdSlide.jsx";
 import ImageUploader from "../../components/ImageUploader.jsx";
-import useNow from "../../hooks/useNow.js";
 import { useSeller } from "../../context/SellerAuthContext.jsx";
 import { getShop } from "../../services/api.js";
 import {
@@ -14,16 +13,12 @@ import {
   PHOTO_SUBTEXT_COLOR,
   PRICE_PER_DAY,
   TEXT_COLOR_PRESETS,
-  adState,
-  checkAd,
   contrastOnWhite,
-  createAd,
-  listAds,
-  stopAd,
 } from "../../lib/ads.js";
-import { deleteImage, imageSrc } from "../../lib/images.js";
+import { getAdPayment, listMyAds, startAd, stopMyAd } from "../../services/sellerApi.js";
+import { deleteImage } from "../../lib/images.js";
 import { formatWhen } from "../../lib/orders.js";
-import { formatKES } from "../../lib/format.js";
+import { formatKES, localPhone, phoneDigits } from "../../lib/format.js";
 
 const inputCls = "w-full rounded-xl border border-ink/20 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-vibe";
 const TONES = {
@@ -78,8 +73,8 @@ function ColorField({ id, label, value, onChange }) {
 
 export default function SellerAds() {
   const { seller } = useSeller();
-  const now = useNow(60000);
-  const [ads, setAds] = useState(() => listAds(seller.shopId));
+  const [ads, setAds] = useState(null);
+  const [phone, setPhone] = useState(() => localPhone(seller.phone || ""));
   const [shop, setShop] = useState(null);
   const [headline, setHeadline] = useState("");
   const [subtext, setSubtext] = useState("");
@@ -140,57 +135,87 @@ export default function SellerAds() {
     setSubtextColor(c);
   };
 
-  const refresh = () => setAds(listAds(seller.shopId));
+  const refresh = async () => {
+    try {
+      setAds(await listMyAds(seller.shopId));
+    } catch {
+      setAds((cur) => cur ?? []);
+    }
+  };
+  useEffect(() => {
+    refresh();
+  }, [seller.shopId]);
   const total = days * PRICE_PER_DAY;
+
+  // After the PIN prompt, ask the server every 3 seconds whether the payment went through.
+  async function waitForPayment(adId) {
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      let res;
+      try {
+        res = await getAdPayment(seller.shopId, adId);
+      } catch {
+        continue;
+      }
+      if (res.status === "paid") return { ok: true, ad: res.ad, message: res.message };
+      if (res.status === "failed") return { ok: false, message: res.message || "The payment did not go through. You were not charged." };
+    }
+    return { ok: false, message: "We did not get a reply from M-Pesa yet. If money left your phone, refresh this page in a minute and your ad will show." };
+  }
 
   async function submit(e) {
     e.preventDefault();
+    if (busy) return;
     if (headline.trim().length < 5 || headline.trim().length > 40) return setError("The headline must have 5 to 40 characters.");
     if (subtext.trim().length > 90) return setError("The extra text can have at most 90 characters.");
     if (target === "product" && !productId) return setError("Choose the product to promote.");
-    // On a plain white ad, a very light text colour cannot be read.
     if (!image[0]) {
       if (contrastOnWhite(headlineColor) < MIN_CONTRAST) return setError("Your headline colour is too light to read on a white ad. Pick a darker colour or add a photo.");
       if (subtext.trim() && contrastOnWhite(subtextColor) < MIN_CONTRAST) return setError("Your extra text colour is too light to read on a white ad. Pick a darker colour or add a photo.");
     }
+    if (!/^0[17]\d{8}$/.test(phone)) return setError("Enter the M-Pesa phone number to pay from: 10 digits starting with 0.");
     setError("");
     setNotice(null);
     setBusy(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500)); // Demo payment
-    const ad = {
-      id: "ad" + Date.now().toString(36),
-      shopId: seller.shopId,
-      headline: headline.trim(),
-      subtext: subtext.trim(),
-      image: image[0] || "",
-      darken: Boolean(image[0]) && darken,
-      headlineColor,
-      subtextColor,
-      target,
-      productId: target === "product" ? productId : "",
-      days,
-      total,
-      paid: true,
-      createdAt: Date.now(),
-      reports: [],
-    };
-    const issue = checkAd(ad, shop);
-    createAd(ad, issue);
-    // The photo now belongs to the ad, so it must not be cleaned up when the seller leaves the page.
-    unsaved.current = null;
-    setImage([]);
-    touched.current = false;
-    setHeadlineColor(DEFAULT_HEADLINE_COLOR);
-    setSubtextColor(DEFAULT_SUBTEXT_COLOR);
-    setHeadline("");
-    setSubtext("");
-    setBusy(false);
-    setNotice(
-      issue
-        ? { good: false, text: `Your payment of ${formatKES(total)} was received, but your ad could not go live yet: ${issue} Our team will sort it out. If it cannot be fixed, you are refunded.` }
-        : { good: true, text: `Payment of ${formatKES(total)} received. Your ad is live now for ${days} ${days === 1 ? "day" : "days"}.` }
-    );
-    refresh();
+    try {
+      const made = await startAd(seller.shopId, {
+        headline: headline.trim(),
+        subtext: subtext.trim(),
+        image: image[0] || undefined,
+        darken: Boolean(image[0]) && darken,
+        headlineColor,
+        subtextColor,
+        target,
+        productId: target === "product" ? productId : undefined,
+        days,
+        phone,
+      });
+      // The photo now belongs to the ad, so it must not be cleaned up when the seller leaves the page.
+      unsaved.current = null;
+      let result = { ok: true, message: made.message };
+      if (made.status === "pending") {
+        setNotice({ good: true, text: made.message || "Check your phone and enter your M-Pesa PIN." });
+        result = await waitForPayment(made.adId);
+      }
+      if (result.ok) {
+        setImage([]);
+        touched.current = false;
+        setHeadlineColor(DEFAULT_HEADLINE_COLOR);
+        setSubtextColor(DEFAULT_SUBTEXT_COLOR);
+        setHeadline("");
+        setSubtext("");
+        const attention = result.ad?.state === "attention";
+        setNotice({ good: !attention, text: result.message || "Payment received." });
+      } else {
+        setNotice({ good: false, text: result.message });
+      }
+    } catch (err) {
+      setNotice(null);
+      setError(err.message || "Could not start the payment. Please try again.");
+    } finally {
+      setBusy(false);
+      refresh();
+    }
   }
 
   const preview = {
@@ -291,8 +316,14 @@ export default function SellerAds() {
               {notice.text}
             </p>
           )}
+          <div className="space-y-1.5">
+            <label htmlFor="ad-phone" className="text-sm font-semibold">
+              M-Pesa number to pay from
+            </label>
+            <input id="ad-phone" inputMode="numeric" maxLength={10} placeholder="0712345678" value={phone} onChange={(e) => setPhone(phoneDigits(e.target.value))} className={inputCls} />
+          </div>
           <Button type="submit" disabled={busy}>
-            {busy ? "Processing payment..." : `Pay ${formatKES(total)} and go live`}
+            {busy ? "Waiting for your M-Pesa PIN..." : `Pay ${formatKES(total)} and go live`}
           </Button>
         </form>
 
@@ -306,16 +337,18 @@ export default function SellerAds() {
         <h2 id="my-ads" className="text-lg font-extrabold">
           Your ads
         </h2>
-        {ads.length === 0 ? (
+        {ads === null ? (
+          <div className="h-24 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />
+        ) : ads.length === 0 ? (
           <p className="rounded-2xl bg-white p-8 text-center text-ink-mute shadow-card">No ads yet.</p>
         ) : (
           <ul className="space-y-3">
             {ads.map((a) => {
-              const state = adState(a, now);
+              const state = a.state;
               const canStop = state === "attention" || state === "scheduled" || state === "live";
               return (
                 <li key={a.id} className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-card">
-                  {imageSrc(a.image) && <img src={imageSrc(a.image)} alt="" className="h-12 w-16 shrink-0 rounded-lg object-cover" />}
+                  {a.image && <img src={a.image} alt="" className="h-12 w-16 shrink-0 rounded-lg object-cover" />}
                   <div className="min-w-0 flex-1">
                     <p className="font-bold">{a.headline}</p>
                     <p className="text-sm text-ink-mute">
@@ -330,8 +363,12 @@ export default function SellerAds() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        stopAd(a.id);
+                      onClick={async () => {
+                        try {
+                          await stopMyAd(seller.shopId, a.id);
+                        } catch (err) {
+                          setError(err.message || "Could not stop the ad.");
+                        }
                         refresh();
                       }}
                     >

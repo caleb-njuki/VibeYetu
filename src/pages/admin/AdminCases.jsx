@@ -1,8 +1,9 @@
 import { useState } from "react";
 import Button from "../../components/Button.jsx";
+import { useEffect } from "react";
 import useNow from "../../hooks/useNow.js";
-import { useOrders } from "../../context/OrdersContext.jsx";
-import { formatCountdown, formatWhen, getStatus, refundAmount, supportDeadline } from "../../lib/orders.js";
+import { decideCase, listCases } from "../../services/adminApi.js";
+import { formatCountdown, formatWhen, refundAmount } from "../../lib/orders.js";
 import { formatKES } from "../../lib/format.js";
 
 function Answers({ title, report }) {
@@ -23,19 +24,36 @@ function Answers({ title, report }) {
 }
 
 export default function AdminCases() {
-  const { orders, supportRefund, supportRelease } = useOrders();
   const now = useNow(60000);
+  const [cases, setCases] = useState(null);
   const [confirming, setConfirming] = useState(null); // { id, action }
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const cases = orders
-    .filter((o) => (o.status === "accepted" || o.status === "dispatched") && getStatus(o, now) === "review")
-    .sort((a, b) => supportDeadline(a) - supportDeadline(b));
+  const load = () =>
+    listCases()
+      .then(setCases)
+      .catch((err) => {
+        setCases((cur) => cur ?? []);
+        setError(err.message || "Could not load cases.");
+      });
+  useEffect(() => {
+    load();
+  }, []);
 
-  function decide() {
-    if (!confirming) return;
-    if (confirming.action === "refund") supportRefund(confirming.id);
-    else supportRelease(confirming.id);
-    setConfirming(null);
+  async function decide() {
+    if (!confirming || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await decideCase(confirming.id, confirming.action);
+      setConfirming(null);
+    } catch (err) {
+      setError(err.message || "Could not save the decision.");
+    } finally {
+      setBusy(false);
+      load();
+    }
   }
 
   return (
@@ -47,12 +65,15 @@ export default function AdminCases() {
         </p>
       </div>
 
-      {cases.length === 0 ? (
+      {error && <p role="alert" className="text-sm font-semibold text-red-700">{error}</p>}
+      {cases === null ? (
+        <div className="h-40 animate-pulse rounded-2xl bg-ivory-dark" aria-busy="true" />
+      ) : cases.length === 0 ? (
         <p className="rounded-2xl bg-white p-8 text-center text-ink-mute shadow-card">No cases need a decision right now.</p>
       ) : (
         <ul className="space-y-4">
           {cases.map((o) => {
-            const left = supportDeadline(o) - now;
+            const left = o.supportDeadline - now;
             const refundTo = refundAmount(o);
             const asking = confirming?.id === o.id ? confirming.action : null;
             return (
@@ -83,7 +104,7 @@ export default function AdminCases() {
                     <span className="font-semibold">
                       {asking === "refund" ? `Refund ${formatKES(refundTo)} to the buyer?` : `Release ${formatKES(o.total)} to the seller?`} This cannot be undone.
                     </span>
-                    <Button size="sm" variant="dark" onClick={decide}>
+                    <Button size="sm" variant="dark" onClick={decide} disabled={busy}>
                       Yes, confirm
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>

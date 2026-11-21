@@ -1,30 +1,41 @@
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { LogOut } from "lucide-react";
 import Logo from "../../components/Logo.jsx";
-import useNow from "../../hooks/useNow.js";
+import { useEffect, useState } from "react";
 import { useAdmin } from "../../context/AdminAuthContext.jsx";
-import { useOrders } from "../../context/OrdersContext.jsx";
-import { getStatus } from "../../lib/orders.js";
-import { adState, listAds } from "../../lib/ads.js";
-import { pendingReviewCount } from "../../lib/suspensions.js";
+import { getOverview, listAdminAds } from "../../services/adminApi.js";
 
 const tab = ({ isActive }) =>
   `flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold ${isActive ? "bg-ink text-white" : "text-ink hover:bg-ink/5"}`;
 
 export default function AdminLayout() {
   const { admin, logout } = useAdmin();
-  const { orders } = useOrders();
-  const now = useNow(60000);
   const navigate = useNavigate();
-  useLocation(); // re-check the pending ads count whenever the admin changes page
+  const location = useLocation(); // count again whenever the staff member changes page
+  const [counts, setCounts] = useState({ cases: 0, reports: 0, ads: 0 });
+
+  useEffect(() => {
+    if (!admin) return undefined;
+    let live = true;
+    const load = () =>
+      Promise.all([getOverview(), listAdminAds()])
+        .then(([o, ads]) => {
+          if (live) setCounts({ cases: o.cases, reports: o.pendingReviews, ads: ads.filter((a) => a.state === "attention").length });
+        })
+        .catch(() => {});
+    load();
+    const timer = setInterval(() => !document.hidden && load(), 60000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [admin, location.pathname]);
 
   if (!admin) return <Navigate to="/admin/login" replace />;
 
-  const pendingAds = listAds().filter((a) => adState(a) === "attention").length;
-  const reportsWaiting = pendingReviewCount();
-  const openCases = orders.filter(
-    (o) => (o.status === "accepted" || o.status === "dispatched") && getStatus(o, now) === "review"
-  ).length;
+  const pendingAds = counts.ads;
+  const reportsWaiting = counts.reports;
+  const openCases = counts.cases;
 
   return (
     <div className="min-h-screen">

@@ -40,7 +40,7 @@ function Stat({ label, value }) {
 
 export default function SellerSales() {
   const { seller } = useSeller();
-  const { orders } = useOrders();
+  const { shopOrders: orders } = useOrders();
   const now = useNow(60000);
   const [period, setPeriod] = useState("today");
 

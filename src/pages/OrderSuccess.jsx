@@ -7,12 +7,12 @@ import { formatKES, fulfillmentLabel } from "../lib/format.js";
 
 export default function OrderSuccess() {
   const group = useLocation().state?.group;
-  const { addOrders } = useOrders();
+  const { refresh } = useOrders();
 
-  // Saves the new orders to My Orders. Safe to run twice: known orders are skipped.
+  // Loads the new orders into My Orders.
   useEffect(() => {
-    if (group) addOrders(group.orders);
-  }, [group, addOrders]);
+    refresh();
+  }, [refresh]);
 
   if (!group) return <Navigate to="/" replace />;
 

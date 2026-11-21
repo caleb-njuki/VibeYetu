@@ -1,10 +1,9 @@
-// Where a shop's money is paid. Changing it needs a one-time code sent to the seller's own phone.
+// Where a shop's money is paid. The seller types it twice, and it can be changed while no orders are in progress.
 import { pool } from '../config/db.js';
 import { httpError } from '../utils/httpError.js';
-import { normalizePhone } from '../utils/phone.js';
+import { normalizeTyped } from '../utils/phone.js';
 import { maskPhone } from '../utils/phoneMask.js';
 import { withTransaction } from '../utils/transaction.js';
-import { consumeVerified, requestCode, verifyCode } from './challenge.service.js';
 import { releaseWaitingPayouts } from './payoutQueue.service.js';
 import { addShopNotice } from './notification.service.js';
 
@@ -24,12 +23,12 @@ export function validatePayout(d = {}) {
     const paybill = compact(d.paybill);
     const account = String(d.account ?? '').replace(/\s+/g, ' ').trim();
     if (!PAYBILL_RE.test(paybill)) return { message: 'A paybill number has 5 to 7 digits, for example 247247.' };
-    if (!ACCOUNT_RE.test(account)) return { message: 'Enter the account number: letters and numbers only, up to 20 characters.' };
+    if (!ACCOUNT_RE.test(account)) return { message: 'Enter the account number: letters and numbers only, 1 to 20 characters.' };
     return { value: { method: 'paybill', paybill, account } };
   }
   if (d.method === 'pochi' || d.method === 'mpesa') {
-    const phone = normalizePhone(String(d.phone ?? ''));
-    if (!phone || !phone.startsWith('+254')) return { message: 'Enter a valid Kenyan phone number, for example 0712 345 678.' };
+    const phone = normalizeTyped(String(d.phone ?? ''));
+    if (!phone || !phone.startsWith('+254')) return { message: 'Enter a 10-digit phone number starting with 0, for example 0712345678.' };
     return { value: { method: d.method, phone } };
   }
   return { message: 'Choose how you want to be paid.' };
@@ -60,25 +59,29 @@ export async function getPayout(shopId, db = pool) {
 
 const same = (a, b) => a && b && a.method === b.method && a.till === b.till && a.paybill === b.paybill && a.account === b.account && a.phone === b.phone;
 
-// Step 1. The details are checked first, so a code is not wasted on a mistake.
-export async function requestPayoutCode(sellerId, shopId, draft) {
+// Orders that are still being worked on. While there are any, the payout method cannot be changed.
+const IN_PROGRESS = ['pending', 'accepted', 'dispatched'];
+
+// The seller types the details twice. They are saved only if both entries match, and only when the shop has no
+// orders in progress (a first payout method can always be added).
+export async function savePayout(sellerId, shopId, draft, again) {
   const checked = validatePayout(draft);
   if (!checked.value) throw httpError(400, checked.message);
-  const current = (await getPayout(shopId)).payout;
-  if (same(current, checked.value)) throw httpError(409, 'That is already your payout method.');
-  return requestCode(sellerId, 'payout', String(shopId));
-}
-
-// Step 2.
-export const verifyPayoutCode = (sellerId, shopId, code) => verifyCode(sellerId, 'payout', String(shopId), String(code ?? '').trim());
-
-// Step 3. Only works right after a code was accepted, and only once.
-export async function savePayout(sellerId, shopId, draft) {
-  const checked = validatePayout(draft);
-  if (!checked.value) throw httpError(400, checked.message);
+  const second = validatePayout(again);
+  if (!second.value || !same(checked.value, second.value)) {
+    throw httpError(400, 'The two entries do not match. Please type the details again, carefully.');
+  }
   const v = checked.value;
   await withTransaction(async (c) => {
-    await consumeVerified(c, sellerId, 'payout', String(shopId));
+    await c.query('SELECT id FROM shops WHERE id = $1 FOR UPDATE', [shopId]);
+    const current = (await getPayout(shopId, c)).payout;
+    if (same(current, v)) throw httpError(409, 'That is already your payout method.');
+    if (current) {
+      const busy = await c.query('SELECT 1 FROM orders WHERE shop_id = $1 AND status = ANY($2::text[]) LIMIT 1', [shopId, IN_PROGRESS]);
+      if (busy.rows.length) {
+        throw httpError(409, 'You cannot change your payout method while you have orders in progress. Try again when they are finished.');
+      }
+    }
     await c.query(
       `INSERT INTO payout_methods (shop_id, method, till, paybill, account, phone, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, now())
